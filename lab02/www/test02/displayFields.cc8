@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formularios DEMO - Respuesta</title>
+</head>
+<body>
+    <h1>Pruebas de Formularios</h1>
+    
+    <p> <--- <a href="/test02">Regresar a Formularios</a></p>
+    
+    <h2>DATOS del Form:</h2>
+
+    <h3> NOMBRE: </h3>
+    <p>{name}</p>
+    <h3> CORREO: </h3>
+    <p>{email}</p>
+
+    <p> <--- <a href="/test02">Regresar a Formularios</a></p>
+</body>
+</html>
