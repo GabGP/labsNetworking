@@ -1,4 +1,4 @@
-# Lab01 - Sockets TCP Y UDP
+# Lab01 - Sockets TCP and UDP
 
 #### By @GabGP and @guillermo-martinez42
 
