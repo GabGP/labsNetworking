@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0" />
+	<meta http-equiv="content-type" content="charset=utf-8" />
+	<meta http-equiv="pragma" content="no-cache" />
+	<meta http-equiv="cache-control" content="no-cache,no-transform" />
+	<title>CC8 - POST Response</title>
+</head>
+<body>
+	<h1>Hola {name}</h1>
+	<h4>email: {email}</h4>
+	<h5>Subject: {subject}</h5>
+	<p>{massage}</p>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formularios DEMO</title>
+    <script type="text/javascript">
+        function submitForm(event) {
+            event.preventDefault();
+            var form = event.target;
+            var formData = new FormData(form);
+            var jsonObject = {};
+            formData.forEach(function(value, key){jsonObject[key] = value;});
+            var xhr = new XMLHttpRequest();
+            xhr.open(form.method, form.action, true);
+            xhr.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4 && xhr.status === 200) {window.document.body.innerHTML = xhr.responseText;}
+            };
+            xhr.send(JSON.stringify(jsonObject));
+        }
+    </script>
+</head>
+<body>
+    <h1>Prueba de Formularios</h1>
+    
+    <p> &lt;--- <a href="/">Regresar a Index</a></p>
+
+    <hr/>
+    <hr/>
+    
+    <h2>GET - application/x-www-form-urlencoded</h2>
+    <form action="/test02/displayFields.cc8" method="get" enctype="application/x-www-form-urlencoded">
+        <label for="name1">Nombre:</label>
+        <input type="text" id="name1" name="name" value="GET - application/x-www-form-urlencoded"><br>
+        <label for="email1">Correo:</label>
+        <input type="email" id="email1" name="email" value="lab02@galileo.edu"><br>
+        <input type="submit" value="Enviar">
+    </form>
+
+    <hr/>
+    
+    <h2>GET - multipart/form-data</h2>
+    <form action="/test02/displayFields.cc8" method="get" enctype="multipart/form-data">
+        <label for="name2">Nombre:</label>
+        <input type="text" id="name2" name="name" value="GET - multipart/form-data"><br>
+        <label for="email2">Correo:</label>
+        <input type="email" id="email2" name="email" value="lab02@galileo.edu"><br>
+        <input type="submit" value="Enviar">
+    </form>
+
+    <hr/>
+    
+    <h2>GET - text/plain</h2>
+    <form action="/test02/displayFields.cc8" method="get" enctype="text/plain">
+        <label for="name3">Nombre:</label>
+        <input type="text" id="name3" name="name" value="GET - text/plain"><br>
+        <label for="email3">Correo:</label>
+        <input type="email" id="email3" name="email" value="lab02@galileo.edu"><br>
+        <input type="submit" value="Enviar">
+    </form>
+
+    <hr/>
+    <hr/>
+    
+    <h2>POST - application/x-www-form-urlencoded</h2>
+    <form action="/test02/displayFields.cc8" method="post" enctype="application/x-www-form-urlencoded">
+        <label for="name4">Nombre:</label>
+        <input type="text" id="name4" name="name" value="POST - application/x-www-form-urlencoded"><br>
+        <label for="email4">Correo:</label>
+        <input type="email" id="email4" name="email" value="lab02@galileo.edu"><br>
+        <input type="submit" value="Enviar">
+    </form>
+
+    <hr/>
+    
+    <h2>POST - multipart/form-data</h2>
+    <form action="/test02/displayFields.cc8" method="post" enctype="multipart/form-data">
+        <label for="name5">Nombre:</label>
+        <input type="text" id="name5" name="name" value="POST - multipart/form-data"><br>
+        <label for="email5">Correo:</label>
+        <input type="email" id="email5" name="email" value="lab02@galileo.edu"><br>
+        <input type="submit" value="Enviar">
+    </form>
+
+    <hr/>
+    
+    <h2>POST - text/plain</h2>
+    <form action="/test02/displayFields.cc8" method="post" enctype="text/plain">
+        <label for="name6">Nombre:</label>
+        <input type="text" id="name6" name="name" value="POST - text/plain"><br>
+        <label for="email6">Correo:</label>
+        <input type="email" id="email6" name="email" value="lab02@galileo.edu"><br>
+        <input type="submit" value="Enviar">
+    </form>
+
+    <hr/>
+    
+    <h2>POST - application/json</h2>
+    <form action="/test02/displayFields.cc8" method="post" onsubmit="submitForm(event)">
+        <label for="name7">Nombre:</label>
+        <input type="text" id="name7" name="name" value="POST - application/json" required><br>
+        <label for="email7">Correo:</label>
+        <input type="email" id="email7" name="email" value="lab02@galileo.edu" required><br>
+        <input type="submit" value="Enviar">
+    </form>
+
+    <hr/>
+    <hr/>
+    
+    <p> &lt;--- <a href="/">Regresar a Index</a></p>
+    
+</body>
+</html>

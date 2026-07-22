@@ -1,0 +1,8 @@
+@font-face {
+    font-family: BungeeSpice;
+    src: url(BungeeSpice-Regular.ttf);
+  }
+
+  body {
+    font-family: BungeeSpice;
+  }
