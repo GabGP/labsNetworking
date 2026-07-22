@@ -6,7 +6,9 @@ JVM= java
 		$(JC) $(JFLAGS) $*.java
 
 CLASSES = \
+		HttpRequestData.java \
 		Request.java \
+		RequestHelper.java \
 		Response.java \
 		FormatterWebServer.java \
 		ThreadServer.java \
