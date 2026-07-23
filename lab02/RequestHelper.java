@@ -48,7 +48,8 @@ public class RequestHelper {
     }
 
     // enctype="text/plain": cada campo va como "name=value" en su propia línea
-    // (separadas por CRLF) y SIN codificación URL. (WHATWG HTML - text/plain encoding)
+    // (separadas por CRLF) y SIN codificación URL. (WHATWG HTML - text/plain
+    // encoding)
     private static void parseTextPlain(String data, Map<String, String> targetMap) {
         String[] lines = data.split("\\r?\\n");
         for (String line : lines) {
