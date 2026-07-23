@@ -54,17 +54,24 @@ public class Response {
             body = html.getBytes(StandardCharsets.UTF_8);
         }
 
-        ArrayList<String> headers = new ArrayList<String>();
-        headers.add("HTTP/1.1 200 OK");
-        headers.add("Content-Type: " + contentTypeFor(file));
-        headers.add("ClaseCC8: Alumnos");
-        headers.add("Content-Length: " + body.length);
-        headers.add("Connection: close");
-        headers.add("");
-        headers.add("");
+        // Respuesta con el MISMO formato del código entregado:
+        // [status, Content-Type, ClaseCC8, Content-Length, "", body]
+        String bodyForLog = isTextual(file)
+                ? new String(body, StandardCharsets.UTF_8)
+                : "[binary " + body.length + " bytes]";
 
-        // Cabeceras como texto; el cuerpo se escribe como bytes crudos.
-        dataOut.write(String.join("\r\n", headers).getBytes(StandardCharsets.UTF_8));
+        ArrayList<String> response = new ArrayList<String>();
+        response.add("HTTP/1.1 200 OK");
+        response.add("Content-Type: " + contentTypeFor(file));
+        response.add("ClaseCC8: Alumnos");
+        response.add("Content-Length: " + body.length);
+        response.add("");
+        response.add(bodyForLog);
+
+        // Enviar: cabeceras como texto + línea en blanco; el cuerpo se escribe como
+        // bytes crudos para no corromper imágenes/fuentes.
+        String head = String.join("\r\n", response.subList(0, 4)) + "\r\n\r\n";
+        dataOut.write(head.getBytes(StandardCharsets.UTF_8));
         // Sección 3.6: HEAD envía exactamente las mismas cabeceras que GET
         // (incluyendo Content-Length) pero SIN el cuerpo.
         if (!"HEAD".equals(req.getMethod())) {
@@ -72,8 +79,7 @@ public class Response {
         }
         dataOut.flush();
 
-        // En el log solo van las cabeceras (nunca el cuerpo binario).
-        LOGGER.info("(" + nThreadServer + ") response: " + headers );
+        LOGGER.info("(" + nThreadServer + ") response: " + response );
         LOGGER.info("(" + nThreadServer + ") request: " + request );
 
     }// sendData
@@ -116,9 +122,9 @@ public class Response {
         String ext = (dot == -1) ? "" : name.substring(dot + 1);
 
         switch (ext) {
-            case "html": case "htm": case "cc8": return "text/html; charset=utf-8";
-            case "css":   return "text/css; charset=utf-8";
-            case "txt":   return "text/plain; charset=utf-8";
+            case "html": case "htm": case "cc8": return "text/html";
+            case "css":   return "text/css";
+            case "txt":   return "text/plain";
             case "js":    return "application/javascript";
             case "json":  return "application/json";
             case "png":   return "image/png";
@@ -133,6 +139,18 @@ public class Response {
             default:      return "application/octet-stream";
         }
     }// contentTypeFor
+
+    // ------------------------------------------------------------------
+    // ¿El contenido es texto? (para decidir si se muestra el body en el LOG;
+    // los binarios se registran como un marcador y no ensucian el log).
+    // ------------------------------------------------------------------
+    private boolean isTextual(Path file) {
+        String type = contentTypeFor(file);
+        return type.startsWith("text/")
+                || type.equals("application/javascript")
+                || type.equals("application/json")
+                || type.equals("image/svg+xml");
+    }// isTextual
 
     // ------------------------------------------------------------------
     // ¿Es una plantilla .cc8? (HTML con tags {key} a preprocesar)
@@ -189,23 +207,23 @@ public class Response {
 
         byte[] bodyBytes = htmlBody.getBytes(StandardCharsets.UTF_8);
 
-        ArrayList<String> headers = new ArrayList<String>();
-        headers.add("HTTP/1.1 " + code + " " + reason);
-        headers.add("Content-Type: text/html; charset=utf-8");
-        headers.add("Content-Length: " + bodyBytes.length);
-        headers.add("Connection: close");
-        headers.add("");
-        headers.add("");
+        ArrayList<String> response = new ArrayList<String>();
+        response.add("HTTP/1.1 " + code + " " + reason);
+        response.add("Content-Type: text/html");
+        response.add("Content-Length: " + bodyBytes.length);
+        response.add("");
+        response.add(htmlBody);
 
         // Cabeceras como texto + cuerpo como bytes crudos (Content-Length exacto).
-        dataOut.write(String.join("\r\n", headers).getBytes(StandardCharsets.UTF_8));
+        String head = String.join("\r\n", response.subList(0, 3)) + "\r\n\r\n";
+        dataOut.write(head.getBytes(StandardCharsets.UTF_8));
         // HEAD nunca lleva cuerpo, ni siquiera en respuestas de error.
         if (!"HEAD".equals(method)) {
             dataOut.write(bodyBytes);
         }
         dataOut.flush();
 
-        LOGGER.info("(" + nThreadServer + ") response: " + headers);
+        LOGGER.info("(" + nThreadServer + ") response: " + response);
         LOGGER.warning("(" + nThreadServer + ") error " + code + ": " + detail);
     }// sendError
 
