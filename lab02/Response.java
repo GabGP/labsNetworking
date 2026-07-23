@@ -47,6 +47,11 @@ public class Response {
         // ----- Sección 3.5: si es un .cc8, preprocesar los tags {key} del formulario -----
         if (isCc8(file)) {
             body = preprocessTemplate(body, req.getParams());
+        } else if (isHtml(file)) {
+            // Demo original: reemplazar {fieldTest_DEMO} en las páginas HTML.
+            String html = new String(body, StandardCharsets.UTF_8);
+            html = html.replace("{fieldTest_DEMO}", "El servidor cambió esto y agregó un número aleatorio: "+ (new Random()).nextInt(1000)  );
+            body = html.getBytes(StandardCharsets.UTF_8);
         }
 
         ArrayList<String> headers = new ArrayList<String>();
@@ -135,6 +140,14 @@ public class Response {
     private boolean isCc8(Path file) {
         return file.getFileName().toString().toLowerCase().endsWith(".cc8");
     }// isCc8
+
+    // ------------------------------------------------------------------
+    // ¿Es una página HTML? (para el demo {fieldTest_DEMO} del index)
+    // ------------------------------------------------------------------
+    private boolean isHtml(Path file) {
+        String name = file.getFileName().toString().toLowerCase();
+        return name.endsWith(".html") || name.endsWith(".htm");
+    }// isHtml
 
     // ------------------------------------------------------------------
     // Sección 3.5: Preprocesa un archivo .cc8 (HTML con tags {key}).
