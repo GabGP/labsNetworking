@@ -38,8 +38,28 @@ public class RequestHelper {
                 parseMultipartFormData(contentType, body, requestData.getParams());
                 break;
 
+            case "text/plain":
+                parseTextPlain(body, requestData.getParams());
+                break;
+
             default:
                 break;
+        }
+    }
+
+    // enctype="text/plain": cada campo va como "name=value" en su propia línea
+    // (separadas por CRLF) y SIN codificación URL. (WHATWG HTML - text/plain encoding)
+    private static void parseTextPlain(String data, Map<String, String> targetMap) {
+        String[] lines = data.split("\\r?\\n");
+        for (String line : lines) {
+            if (line.isEmpty())
+                continue;
+            int eq = line.indexOf('=');
+            if (eq >= 0) {
+                String key = line.substring(0, eq).trim();
+                String value = line.substring(eq + 1);
+                targetMap.put(key, value);
+            }
         }
     }
 
