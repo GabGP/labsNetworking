@@ -10,6 +10,7 @@ CLASSES = \
 		Request.java \
 		RequestHelper.java \
 		Response.java \
+		ResponseHelper.java \
 		FormatterWebServer.java \
 		ThreadServer.java \
 		Server.java \
