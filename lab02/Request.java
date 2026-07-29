@@ -8,6 +8,11 @@ public class Request {
     public Object getData(Logger LOGGER, BufferedReader dataIn, Integer nThreadServer) throws Exception {
         // ======================================
         // VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV
+        // Aquí va tu código para procesar la solicitud HTTP
+        ///
+        // Apartir de aquí puede modificar el código a su gusto,
+        // pero no modifique la firma de la función.
+        //
 
         ArrayList<String> requestRawLines = new ArrayList<String>();
         HttpRequestData requestData = new HttpRequestData();
@@ -111,6 +116,6 @@ public class Request {
         }
 
         return requestData;
-    }
+    }// getData
 
 }
