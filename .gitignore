@@ -3,3 +3,6 @@
 
 # Java class files
 *.class
+
+# Binary directories
+*/bin/
