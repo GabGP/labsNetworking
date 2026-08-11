@@ -2,26 +2,32 @@ CC = gcc
 CFLAGS = -Wall -Wextra -O2 -std=gnu99 -D_POSIX_C_SOURCE=200809L
 LDFLAGS = -lm
 
-TARGET = ntp_client
-TEST_TARGET = test_ntp
+SRC_DIR = src
+BIN_DIR = bin
 
-SRCS = ntp_packet.c ntp_time.c ntp_net.c sync.c log.c main.c
-OBJS = $(SRCS:.c=.o)
+TARGET = $(BIN_DIR)/ntp_client
+TEST_TARGET = $(BIN_DIR)/test_ntp
 
-TEST_SRCS = ntp_packet.c ntp_time.c test_ntp.c
-TEST_OBJS = $(TEST_SRCS:.c=.o)
+SRCS = $(addprefix $(SRC_DIR)/, ntp_packet.c ntp_time.c ntp_net.c sync.c log.c main.c)
+OBJS = $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(SRCS))
+
+TEST_SRCS = $(addprefix $(SRC_DIR)/, ntp_packet.c ntp_time.c test_ntp.c)
+TEST_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(TEST_SRCS))
 
 .PHONY: all clean test
 
 all: $(TARGET)
 
 $(TARGET): $(OBJS)
+	@mkdir -p $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
 
 $(TEST_TARGET): $(TEST_OBJS)
+	@mkdir -p $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(TEST_OBJS) $(LDFLAGS)
 
-%.o: %.c
+$(BIN_DIR)/%.o: $(SRC_DIR)/%.c
+	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 test: $(TEST_TARGET)
