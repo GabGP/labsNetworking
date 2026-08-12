@@ -6,3 +6,10 @@
 
 # Binary directories
 */bin/
+
+# Build directories
+*/build/
+
+# Log directories
+*/logs/
+*.log
