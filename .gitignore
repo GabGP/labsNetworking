@@ -1,4 +1,5 @@
-# C object files
+# Object directories
+*/obj/
 *.o
 
 # Java class files
