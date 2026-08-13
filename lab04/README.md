@@ -41,7 +41,16 @@ Para compilar el cliente NTP ejecute:
 ```bash
 make
 ```
-Esto generará el ejecutable `ntp_client`.
+
+Los archivos generados se organizan de la siguiente manera:
+
+```text
+build/
+├── obj/    # Archivos objeto (.o)
+└── bin/    # Ejecutables
+```
+
+El ejecutable principal queda en `build/bin/ntp_client`.
 
 ### 2. Ejecutar Pruebas Unitarias (Vectores del PDF)
 Para verificar las conversiones de fecha y la matemática con el vector exacto del PDF (página 4):
@@ -53,17 +62,17 @@ make test
 
 #### Ejemplo con fecha inicial simulada (atrasada):
 ```bash
-./ntp_client --fecha "2020-09-01 21:00:17.123" --umbral-ms 50 --intervalo 60
+./build/bin/ntp_client --fecha "2020-09-01 21:00:17.123" --umbral-ms 50 --intervalo 60
 ```
 
 #### Ejemplo con hora actual del sistema:
 ```bash
-./ntp_client --umbral-ms 30 --intervalo 30
+./build/bin/ntp_client --umbral-ms 30 --intervalo 30
 ```
 
 #### Ver ayuda de argumentos:
 ```bash
-./ntp_client --help
+./build/bin/ntp_client --help
 ```
 
 ---
@@ -78,7 +87,7 @@ make test
 ---
 
 ## 📦 Limpieza
-Para borrar los objetos compilados y ejecutables:
+Para borrar los objetos compilados y ejecutables generados dentro de `build/`:
 ```bash
 make clean
 ```
