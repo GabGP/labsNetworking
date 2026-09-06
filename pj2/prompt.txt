@@ -1,0 +1,75 @@
+## Objective
+Implement a working traceroute clone in C using RAW sockets, hand-built IP/UDP datagrams, and ICMP reply parsing. This is a graded university project (Ciencias de la Computación VIII, Proyecto #02) and the grading rule is absolute: any solution that invokes the system `traceroute` command or uses a library that implements packet construction or traceroute itself is graded ZERO. Every line of protocol logic must be your own code in this repo.
+
+## NON-NEGOTIABLE RULES (violation = project scores 0)
+- NEVER call, spawn, wrap, or shell out to the system `traceroute`, `tracepath`, `mtr`, or `ping`. No `system()`, `popen()`, `exec*()`, or `fork()`-to-exec anywhere in `src/`.
+- NEVER use or link libnet, libpcap, libtrace, libdnet, NetPacket, or any library that builds packets or implements traceroute. The binary MUST link only against libc (`ldd ./traceroute` shows only libc and the dynamic loader).
+- The IP header, UDP header, TTL handling, checksum, probe/reply matching, RTT timing, and the hop loop MUST be written by hand in this project.
+- Allowed helpers, libc/POSIX only: `socket`, `setsockopt(IP_HDRINCL)`, `sendto`, `recvfrom`, `select`/`poll`, `getaddrinfo`/`getnameinfo` (DNS), `inet_ntop`/`inet_pton`, `htons`/`ntohs`/`htonl`/`ntohl`, `clock_gettime`, `getopt`, `nanosleep`. Checksum is your own RFC 1071 function.
+- If the network blocks raw sockets or every hop times out, report the exact output and stop. NEVER "fix" it by wrapping the system tool.
+
+## Context
+- Fresh project directory on Linux (Ubuntu), gcc and make available. Raw sockets need root, so test runs use `sudo`.
+- Course reference is Lab #05 (IP header construction, raw sockets). If Lab #05 code exists in this directory, reuse its header structs and checksum style; otherwise implement from scratch. [OPTIONAL: paste Lab #05 code or its path here, or delete this line]
+- Reference behavior: Linux `traceroute` in its default UDP mode. Expected output shape:
+
+      traceroute to galileo.edu (216.239.32.21), 64 hops max, 60 byte packets
+       1  192.168.1.1 (192.168.1.1)  12.224 ms  1.962 ms  1.005 ms
+       2  10.135.128.1 (10.135.128.1)  23.494 ms 10.135.4.1 (10.135.4.1)  13.168 ms  12.846 ms
+       5  * * 10.192.16.113 (10.192.16.113)  17.873 ms
+      11  * * *
+      12  any-in-2015.1e100.net (216.239.32.21)  79.741 ms  76.326 ms  77.815 ms
+
+## Protocol design (implement exactly this)
+1. Resolve the target with `getaddrinfo` (IPv4 only). Determine the local source IP by `connect()`-ing a throwaway UDP socket to the target and reading `getsockname()`.
+2. Sending socket: `socket(AF_INET, SOCK_RAW, IPPROTO_RAW)` with `IP_HDRINCL`. Receiving socket: `socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)`.
+3. For each TTL from first_ttl to max_ttl, send nqueries probes. Each probe is a hand-built 60-byte datagram: IPv4 header (version, IHL, total length, id, flags/frag, TTL = current hop, protocol = UDP, your checksum, src/dst) + UDP header (fixed source port for the run; destination port starting at 33434 and incrementing by 1 per probe, same scheme as Linux traceroute; length; checksum over the pseudo-header) + zero padding.
+4. Record send time with `clock_gettime(CLOCK_MONOTONIC)`. Wait up to waittime seconds with `select`/`poll` on the ICMP socket. For every ICMP packet received: skip the outer IP header (IHL), read type/code, then parse the quoted inner IP header and the first 8 bytes of the inner UDP header. Accept the reply ONLY if inner protocol == UDP, inner src port == our source port, and inner dst port == the outstanding probe's destination port. Ignore everything else and keep waiting until the deadline.
+5. ICMP type 11 code 0 (Time Exceeded) → sender is hop N: print address and RTT. ICMP type 3 code 3 (Port Unreachable) → destination reached: print, finish this hop's probes, then exit. Any other type 3 code → print address, RTT, and ` !<code>`, then exit. No reply by the deadline → print `*`.
+6. Sleep sendwait milliseconds between probes.
+7. Output MUST mirror the sample: hop number right-aligned in 2 columns; first reply in a hop prints `hostname (ip)` via `getnameinfo`, falling back to `ip (ip)`; a later probe in the same hop from a different address prints its own `hostname (ip)` inline before its RTT (hop 2 above); RTT as `%.3f ms`; timeout as `*`.
+
+## CLI (getopt; same letters as Linux traceroute so logs compare 1:1)
+      usage: traceroute [-n] [-f first_ttl] [-m max_ttl] [-q nqueries] [-w waittime_s] [-z sendwait_ms] host
+- `-f` initial TTL, default 1
+- `-m` max hops, default 64
+- `-q` probes per hop, default 3
+- `-w` timeout per probe in seconds, default 3
+- `-z` pause between probes in milliseconds, default 100
+- `-n` do not resolve hostnames
+Reject invalid or out-of-range values with a usage message and non-zero exit. Exit with a clear message if not running as root.
+
+## Target State (files)
+- `src/traceroute.c` — main hop loop, CLI parsing, output
+- `src/packet.c`, `src/packet.h` — IP/UDP header structs, builders, RFC 1071 checksum, ICMP reply parser
+- `Makefile` — `make` (gcc -Wall -Wextra -O2, zero warnings) and `make clean`; produces `./traceroute`
+- `tests/compare.sh` — runs `sudo ./traceroute [args] HOST` then `sudo traceroute [same args] HOST` (default host 8.8.8.8, args overridable), saves to `tests/logs/own_<host>.log` and `tests/logs/system_<host>.log`, prints a side-by-side diff
+- `README.md` (English) — compile, why sudo is required, every flag with its default, how to run `tests/compare.sh`, how to capture evidence with `sudo tcpdump -ni any 'icmp or udp portrange 33434-33534'`, and a section "Differences vs system traceroute" explaining expected causes: ECMP load balancing sending probes down different paths, routers rate-limiting or not sending ICMP, RTT variance between runs, `*` hops
+- `docs/PACKET_WALKTHROUGH.md` (English, ≤ 1 page) — byte-level story of one probe: exact IP header fields set, UDP header, what router N does when TTL reaches 0, the layout of the ICMP Time Exceeded packet including the quoted inner headers, how the program matches the reply to the probe, how RTT is computed; then what changes at the final hop (ICMP type 3 code 3)
+
+## Scope
+- Work only inside this project directory. Do NOT create files outside it.
+- IPv4 and UDP probes only. Do NOT add ICMP-echo mode, TCP mode, IPv6, AS lookups, or any feature not listed above.
+- Only make changes directly requested. No extra abstractions, config files, or test frameworks.
+
+## Acceptance Criteria (verify each with a real command and paste its output)
+- [ ] `make` completes with zero warnings
+- [ ] `ldd ./traceroute` lists only libc and the loader
+- [ ] `grep -rnE 'system\(|popen\(|exec[lv]p?e?\(|fork\(' src/` returns nothing
+- [ ] `sudo ./traceroute galileo.edu` has the same line structure as the sample above
+- [ ] `sudo ./traceroute -f 3 -m 8 -q 2 -w 1 -z 50 -n 8.8.8.8` starts at hop 3, never passes hop 8, shows 2 RTTs per hop, and prints no hostnames
+- [ ] A non-answering hop prints `*` per probe instead of hanging
+- [ ] The run stops at the first hop whose reply is ICMP type 3 from the destination (last hop's IP equals the resolved target IP)
+- [ ] Running `ping 1.1.1.1` in parallel does not corrupt the output (replies are matched by inner UDP ports)
+- [ ] `tests/compare.sh` produces both logs and the diff
+- [ ] README and `docs/PACKET_WALKTHROUGH.md` exist and describe the actual code behavior
+
+## Action Boundaries
+- Proceed freely with reading, editing, and compiling inside the project.
+- Stop and ask before: the first command that needs `sudo`; installing any package (including `apt-get install traceroute`); deleting any file. After I approve sudo once, you may re-run `./traceroute` and `tests/compare.sh` under sudo for the remaining checks.
+
+## Progress Evidence
+Report only at these checkpoints: (1) build passes, (2) first successful traceroute run, (3) all acceptance criteria verified, (4) docs written. Every completion claim MUST quote the actual command output. If a criterion cannot be verified, say so instead of marking it done.
+
+## Session Strategy
+- New session — start fresh
