@@ -9,7 +9,9 @@
 */bin/
 
 # Build directories
-*/build/
+build/
+**/build/
+**/build/**
 
 # Log directories
 */logs/
