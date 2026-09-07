@@ -34,6 +34,7 @@ all: $(TARGET)
 $(TARGET): $(OBJS)
 	@mkdir -p $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDFLAGS)
+	@cp -f $@ tcp_client
 
 $(TEST_TARGET): $(TEST_OBJS)
 	@mkdir -p $(BIN_DIR)

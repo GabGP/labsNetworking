@@ -5,8 +5,10 @@
 # Java class files
 *.class
 
-# Binary directories
+# Binary directories and files
 */bin/
+tcp_client
+test_log
 
 # Build directories
 build/

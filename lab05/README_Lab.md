@@ -1,189 +1,188 @@
 # README_Lab — Cliente TCP con Raw Sockets
 
-Laboratorio: **Cliente TCP con Raw Sockets — Modificación, análisis y visualización de una sesión TCP**
-Archivos modificados: `ClientTCP/tcp_client.c`, `ClientTCP/tcp_session.c`, `ClientTCP/tcp_session.h`, `ClientTCP/Makefile`
-Archivo agregado: `ClientTCP/test_log.c`
-Servidor de prueba: `ServerTCP.java` — **sin modificar**, tal como indica el enunciado.
+Laboratorio: **Cliente TCP con Raw Sockets — Modificación, análisis y visualización de una sesión TCP**  
+Archivos modificados: `ClientTCP/src/tcp_client.c`, `ClientTCP/src/tcp_session.c`, `ClientTCP/src/tcp_session.h`, `ClientTCP/Makefile`  
+Archivo agregado: `ClientTCP/src/test_log.c`  
+Captura de Wireshark: `img/Wireshark.png`  
+Servidor de prueba: `ServerTCP.java` — **sin modificar**, tal como indica el enunciado.  
 
-> Documento complementario: [`CONCEPTOS_RED.md`](CONCEPTOS_RED.md) explica los conceptos de red que este
-> laboratorio ejercita, con los cálculos hechos a mano (checksums, SEQ/ACK, byte order, encapsulamiento).
-
----
-
-## 1. Qué pedía el laboratorio y qué se entrega
-
-| # | Requerimiento del enunciado | Estado | Dónde se implementó |
-|---|-----------------------------|--------|---------------------|
-| 1 | Permitir mensajes personalizados del usuario, N mensajes, conservando que `EXIT OFF` termina la ejecución | Implementado (versión completa: N mensajes) | `tcp_client.c` → `run_session()` |
-| 2 | Mejorar el output de consola: emisor, receptor, flags, SEQ, ACK, LEN y datos de **cada** segmento | Implementado | `tcp_session.c` → `format_segment()` / `log_segment()` |
-| — | Validar qué opción de cierre realiza el código proporcionado | Analizado y documentado | Sección 5 de este documento |
-| — | No alterar el funcionamiento fundamental de TCP ni el orden del cierre | Respetado | Sección 6 |
+> **Documento complementario:** [`CONCEPTOS_RED.md`](CONCEPTOS_RED.md) explica los fundamentos de redes que este laboratorio ejercita, con los cálculos hechos a mano (checksums con pseudo-header, aritmética de SEQ/ACK, ordenamiento de bytes y encapsulamiento).
 
 ---
 
-## 2. Qué modificaciones se realizaron
+## Tabla de Contenido
 
-### 2.1 `tcp_client.c` — interacción con el usuario (Requerimiento 1)
+* [1. Qué modificaciones realizó](#1-qué-modificaciones-realizó)
+* [2. Cómo funciona la interacción con el usuario](#2-cómo-funciona-la-interacción-con-el-usuario)
+* [3. Cómo se genera el output](#3-cómo-se-genera-el-output)
+* [4. Qué información TCP muestra el programa](#4-qué-información-tcp-muestra-el-programa)
+* [5. Cómo verificó el funcionamiento mediante Wireshark](#5-cómo-verificó-el-funcionamiento-mediante-wireshark)
+* [6. Validación de la opción de cierre de conexión](#6-validación-de-la-opción-de-cierre-de-conexión)
+* [7. Cómo compilar y ejecutar](#7-cómo-compilar-y-ejecutar)
+* [8. Limitaciones conocidas](#8-limitaciones-conocidas)
 
-Antes, `run_session()` hacía una secuencia fija y lineal: handshake → enviar **un** mensaje
-(el que viniera en `-m`, por defecto `"EXIT OFF"`) → esperar el cierre → terminar. Para enviar
-otro mensaje había que volver a ejecutar el programa, y para cambiar el mensaje por defecto había
-que recompilar.
+---
 
-Ahora `run_session()` mantiene **una sola conexión** y dentro de ella un ciclo de mensajes:
+## 1. Qué modificaciones realizó
+
+### 1.1 `tcp_client.c` — Interacción con el usuario (Requerimiento 1)
+
+En la versión original, la función `run_session()` ejecutaba una secuencia fija y lineal: handshake → envío de **un único** mensaje predefinido (`"EXIT OFF"`) → espera del cierre → finalización. Para enviar otro mensaje era necesario reiniciar el programa o modificar el código fuente.
+
+En la versión modificada, `run_session()` mantiene **una sola conexión TCP activa** y ejecuta un ciclo interactivo que permite enviar **$N$ cantidad de mensajes personalizados**:
 
 ```c
 if (tcp_session_handshake(&session, 10) != 0) { ... }   /* handshake UNA sola vez */
 
 for (;;) {
-    /* pide el mensaje al usuario */
+    /* Pide el mensaje al usuario de manera interactiva */
     printf("\nIngrese un mensaje: ");
-    if (read_line(line, sizeof(line)) != 0) break;      /* Ctrl-D: cierra el cliente */
-    if (line[0] == '\0') continue;                      /* enter vacío: no se envía nada */
+    if (read_line(line, sizeof(line)) != 0) break;      /* Ctrl-D: cierre limpio iniciado por cliente */
+    if (line[0] == '\0') continue;                      /* Enter vacío: no envía segmento */
 
-    tcp_session_send_message(&session, line);           /* PSH+ACK con los datos    */
-    rc = tcp_session_recv(&session, response, ..., 10); /* ACK del servidor + eco   */
+    tcp_session_send_message(&session, line);           /* PSH+ACK con los datos del usuario */
+    rc = tcp_session_recv(&session, response, ..., 10); /* ACK del servidor y recepción del eco */
 
-    if (is_exit_message(line)) {                        /* el servidor va a cerrar  */
-        tcp_session_recv(&session, NULL, 0, 10);        /* espera y reconoce su FIN */
+    if (is_exit_message(line)) {                        /* Servidor iniciará el cierre */
+        tcp_session_recv(&session, NULL, 0, 10);        /* Espera y reconoce su FIN+ACK */
         break;
     }
 }
 
-tcp_session_close(&session, 5);                          /* nuestro FIN+ACK          */
+tcp_session_close(&session, 5);                          /* Envía nuestro FIN+ACK y espera ACK final */
 ```
 
-Funciones nuevas en este archivo:
+**Funciones implementadas:**
+* `read_line()`: Lee de `stdin` mediante `fgets()` y remueve de forma segura el salto de línea final (`\r` o `\n`) con `strcspn()`. Retorna `-1` al detectar fin de entrada (`EOF` / Ctrl-D).
+* `is_exit_message()`: Evalúa `strstr(msg, "EXIT") != NULL`. Replica exactamente la condición de terminación de `ServerTCP.java` (`msg.contains("EXIT")`). Esto permite que el cliente anticipe el cierre del servidor y espere su `FIN+ACK` en lugar de solicitar un nuevo mensaje al usuario.
+* **Manejo de argumentos CLI (`-m`):** La bandera `-m` ahora funciona como un atajo para el primer mensaje de la sesión sin bloquear la interactividad posterior. Si no se proporciona `-m`, el cliente inicia directamente en modo interactivo solicitando entrada por consola.
 
-* `read_line()` — lee una línea de `stdin` con `fgets()` y le quita el `\n`/`\r` final con `strcspn()`.
-  Devuelve `-1` en fin de entrada (Ctrl-D), que es la señal para cerrar desde el cliente.
-* `is_exit_message()` — `strstr(msg, "EXIT") != NULL`. **Replica exactamente el criterio del
-  servidor**, que en `ServerTCP.java` hace `if (msg.contains("EXIT")) { break; }`: mismo texto,
-  misma sensibilidad a mayúsculas, misma coincidencia como subcadena en cualquier posición.
-  Gracias a esto el cliente sabe *de antemano* que el servidor va a cerrar y se pone a esperar
-  el FIN en lugar de volver a pedir un mensaje.
+### 1.2 `tcp_session.c` y `tcp_session.h` — Registro y observabilidad de la sesión (Requerimiento 2)
 
-Cambio en las opciones de línea de comandos: `-m` ya **no** es "el único mensaje" sino
-"el primer mensaje, que se envía sin preguntar"; después el programa sigue pidiendo mensajes
-de forma interactiva. Su valor por defecto pasó de `"EXIT OFF"` a `NULL`, de modo que si no se
-pasa `-m` el cliente siempre pregunta. Esto conserva la ejecución clásica del laboratorio base:
+Para cumplir con la visualización detallada de cada segmento:
 
-```bash
-sudo ./tcp_client -m "EXIT OFF"    # se comporta como antes: un mensaje y cierra
-```
+1. **Campos nuevos en la estructura `tcp_session_t`:**
+   ```c
+   uint32_t local_isn;   /* ISN del cliente: base para calcular SEQ/ACK relativos */
+   uint32_t remote_isn;  /* ISN del servidor: base para calcular SEQ/ACK relativos */
+   int      close_logged;/* Evita imprimir duplicado el banner de CLOSE */
+   ```
+2. **Reemplazo de `tcp_session_drain_until_close()` por `tcp_session_recv()`:**  
+   La función original mezclaba en un solo bloque la recepción de datos con el cierre de la conexión. Se modularizó mediante una máquina de estados con el enum `tcp_rx_result_t` (`TCP_RX_TIMEOUT`, `TCP_RX_DATA`, `TCP_RX_FIN`), permitiendo múltiples intercambios de datos en la misma sesión.
+3. **Funciones de formateo y visualización:**
+   * `flags_to_string()`: Traduce el byte de flags TCP a texto idéntico al mostrado por Wireshark (`[SYN]`, `[SYN, ACK]`, `[PSH, ACK]`, `[FIN, ACK]`), respetando el orden canónico (FIN, SYN, RST, PSH, ACK, URG).
+   * `format_data()`: Escapa los bytes de datos para imprimirlos de forma segura en una sola línea (`\n`, `\r`, `\t`, `\"`, `\\` y `\xNN` para no imprimibles), recortando a 64 bytes si excede ese tamaño.
+   * `format_segment()`: Ensambla la línea formateada de cada segmento calculando números de secuencia y acuse de recibo **relativos**.
+   * `log_segment()`: Imprime la línea formateada en consola con descarga forzada de búfer (`fflush`).
+   * `print_banner()` / `print_close_banner()`: Imprimen los encabezados visuales `TCP SESSION`, `DATA`, `CLOSE` y `CONNECTION CLOSED`.
+4. **Visibilidad del segmento ACK puro (Paso 5 de la secuencia):**  
+   En el código base, los segmentos sin datos y sin FIN se descartaban en silencio (`if (payload_len == 0 && !has_fin) continue;`). Ahora el segmento se registra **antes** de esa validación, logrando que la confirmación intermedia enviada por el servidor sea visible en consola.
 
-### 2.2 `tcp_session.c` / `tcp_session.h` — registro de la sesión (Requerimiento 2)
+### 1.3 `Makefile` + `test_log.c` — Infraestructura de compilación y pruebas
 
-**Estado nuevo en `tcp_session_t`:**
+* Se reestructuró el proyecto en carpetas limpias `src/` (fuentes), `build/obj/` (objetos) y `build/bin/` (binarios).
+* Se creó `src/test_log.c`, una suite de pruebas unitarias que genera 7 segmentos TCP sintéticos y valida con `assert` el correcto formateo del emisor, receptor, flags, SEQ/ACK relativos, LEN y cadenas escapadas.
+* Se agregó la meta `make test` para verificar el formato de salida sin requerir privilegios de superusuario (`sudo`), sockets crudos ni el servidor Java encendido.
+* Se agregó la meta `make run` para ejecutar el cliente con manejo automático de `sudo`.
+* Se actualizó la regla de compilación para generar una copia directa en `./tcp_client` facilitando la ejecución tradicional.
 
-```c
-uint32_t local_isn;   /* ISN del cliente:  base para mostrar SEQ/ACK relativos */
-uint32_t remote_isn;  /* ISN del servidor: base para mostrar SEQ/ACK relativos */
-int      close_logged;/* evita imprimir dos veces el separador CLOSE           */
-```
+### 1.4 Qué NO se modificó (el protocolo base sigue intacto)
 
-**`tcp_session_drain_until_close()` se reemplazó por `tcp_session_recv()`**, que devuelve un
-resultado en lugar de intentar hacer todo el cierre de una vez:
-
-```c
-typedef enum {
-    TCP_RX_TIMEOUT = 0, /* no llegó nada relevante a tiempo             */
-    TCP_RX_DATA    = 1, /* llegó un segmento con datos, ya reconocido   */
-    TCP_RX_FIN     = 2  /* llegó el FIN del servidor, ya reconocido     */
-} tcp_rx_result_t;
-```
-
-Este cambio es lo que hace posible el Requerimiento 1: la función original mezclaba "esperar la
-respuesta" con "esperar el cierre", de modo que sólo servía para un intercambio y terminaba la
-sesión. Ahora el cliente la llama una vez por mensaje y decide qué hacer según el resultado.
-
-**Funciones de formato nuevas:**
-
-| Función | Qué hace |
-|---------|----------|
-| `flags_to_string()` | `0x12` → `"[SYN, ACK]"`, en el mismo orden que Wireshark (FIN, SYN, RST, PSH, ACK, URG) |
-| `format_data()` | Escapa el payload a una línea: `\n`, `\r`, `\t`, `\"`, `\\` y `\xNN` para bytes no imprimibles; recorta a 64 bytes |
-| `format_segment()` | Arma la línea completa del segmento en un buffer |
-| `log_segment()` | Imprime la línea que armó `format_segment()` |
-| `print_banner()` / `print_close_banner()` | Separadores `TCP SESSION`, `DATA`, `CLOSE`, `CONNECTION CLOSED` |
-
-**Puntos donde ahora se registra cada segmento** (antes sólo había mensajes sueltos tipo
-`[*] Sending SYN...`):
-
-* `tcp_session_handshake()` → el SYN que enviamos y el SYN+ACK que recibimos.
-* `send_control()` → **todos** los segmentos sin datos que enviamos (el ACK final del handshake,
-  los ACK de los datos, el FIN+ACK del cierre). Como todos pasan por aquí, basta un solo
-  `log_segment()` dentro de esta función para cubrirlos.
-* `tcp_session_send_message()` → el segmento PSH+ACK con los datos.
-* `tcp_session_recv()` → **todo** segmento del servidor que pasa el filtro de la conexión,
-  incluidos los ACK puros.
-* `tcp_session_close()` → el ACK final del servidor.
-
-**El detalle que más cambió respecto al código original:** antes, el ACK puro del servidor
-(paso 5 de la secuencia del enunciado) se descartaba en silencio con
-
-```c
-if (payload_len == 0 && !has_fin) continue;   /* nunca se veía en pantalla */
-```
-
-Ahora se registra **antes** de esa decisión, y sólo después se descarta para efectos de la
-máquina de estados (un ACK puro no avanza secuencia y no se responde). Por eso la secuencia
-completa del enunciado, los 11 pasos, es visible en el log.
-
-### 2.3 `Makefile` + `test_log.c` — verificación del formato
-
-Se agregó el objetivo `make test`, que compila y ejecuta `test_log.c`. Este programa arma
-segmentos sintéticos (SYN, SYN+ACK, ACK, PSH+ACK con datos, FIN+ACK, y un payload con bytes no
-imprimibles) y comprueba con `assert` que la línea generada contenga el emisor, los flags, el
-SEQ y ACK relativos correctos, el LEN y los datos escapados.
-
-Sirve para revisar el formato de salida **sin necesidad de root, de raw sockets ni del servidor
-levantado**, que es justamente lo incómodo de probar a mano.
+* **Headers y Checksums:** La estructura de encabezados IPv4 y TCP (`ip_header.c`, `tcp_header.c`), el cálculo de checksums de Internet y del pseudo-header TCP (`checksum.c`) se mantuvieron intactos.
+* **Raw Sockets:** La capa de transporte cruda (`raw_socket.c`), `IP_HDRINCL` y los filtros de captura permanecieron sin alteraciones.
+* **Servidor de pruebas:** `ServerTCP.java` se mantuvo **completamente intacto**, tal como requería el enunciado.
+* **Aritmética TCP:** Se respeta la especificación estricta: SYN consume 1 byte de secuencia, el payload consume `LEN` bytes, y FIN consume 1 byte de secuencia.
 
 ---
 
-## 3. Cómo funciona la interacción con el usuario
+## 2. Cómo funciona la interacción con el usuario
 
-```
+El cliente establece la conexión una sola vez y permanece escuchando comandos en consola.
+
+```bash
 sudo ./tcp_client -l 127.0.0.1 -s 127.0.0.1 -p 5001 -i lo
 ```
 
-1. El programa abre el raw socket, elige un puerto local efímero y lo imprime.
-2. Hace el three-way handshake **una sola vez**.
-3. Entra en el ciclo y muestra `Ingrese un mensaje: `.
-4. Lo que escriba el usuario viaja como datos de un segmento `PSH+ACK`, sobre la misma conexión.
-5. El servidor responde con su ACK y con el eco del mensaje; el cliente lo reconoce con un ACK.
-6. Vuelve al paso 3, indefinidamente.
+### 2.1 Flujo del ciclo de comunicación
 
-Formas de terminar:
+1. **Inicialización:** El programa abre el raw socket, selecciona un puerto efímero aleatorio (rango 40000–49999) y lo imprime en pantalla para configuración del firewall.
+2. **Handshake inicial:** Ejecuta el three-way handshake (`SYN` → `SYN, ACK` → `ACK`) **una sola vez**.
+3. **Ciclo interactivo:** Muestra el mensaje de solicitud:
+   ```text
+   Ingrese un mensaje: 
+   ```
+4. **Transmisión de datos:** El texto introducido se envía dentro de un segmento TCP con banderas `PSH+ACK`.
+5. **Recepción y Eco:** El cliente espera y muestra la confirmación (`ACK`) del servidor y el segmento con el eco del mensaje, enviando de vuelta un `ACK` para confirmar su recepción.
+6. **Continuidad:** Vuelve inmediatamente al paso 3 sin cerrar la conexión, permitiendo enviar $N$ cantidad de mensajes.
 
-| Entrada del usuario | Qué pasa | Quién inicia el cierre |
-|---------------------|----------|------------------------|
-| Cualquier texto con `EXIT` (p. ej. `EXIT`, `EXIT OFF`, `salir EXIT ya`) | El servidor cierra la conexión al recibir esa línea. El cliente lo sabe y espera su FIN. | **Servidor (Opción 1)** |
-| `EXIT OFF` | Igual que arriba y **además** el servidor se apaga por completo (`msg.contains("OFF")`) | Servidor (Opción 1) |
-| Ctrl-D (fin de entrada) | El cliente deja de pedir mensajes y manda su FIN+ACK | **Cliente (Opción 2)** |
-| Enter vacío | No se envía ningún segmento; se vuelve a preguntar | — |
+### 2.2 Formas de terminación de la sesión
 
-Ejemplo de sesión con dos mensajes:
+| Entrada del usuario | Comportamiento en la conexión | Quién inicia el cierre |
+|---|---|:---:|
+| Texto que contenga `"EXIT"` (p. ej. `EXIT`, `salir EXIT`, etc.) | El servidor responde el eco, cierra su socket y envía `FIN+ACK`. El cliente lo reconoce y envía su propio `FIN+ACK`. | **Servidor (Opción 1)** |
+| `"EXIT OFF"` | Igual que el anterior y además el proceso Java del servidor se apaga (`msg.contains("OFF")`). | **Servidor (Opción 1)** |
+| **Ctrl-D** (`EOF` / fin de entrada) | El cliente intenta iniciar el cierre enviando `FIN+ACK` (Opción 2). Sin embargo, como se explica en la Sección 6, `ServerTCP.java` no contempla la Opción 2 y arroja `NullPointerException` al recibir `null`, y el archivo no pudo modificarse por restricción de las instrucciones. | **Cliente (Opción 2)** |
+| **Enter vacío** | No se genera tráfico de red; el cliente vuelve a mostrar el prompt. | — |
 
-```
-Ingrese un mensaje: Hello World
+### 2.3 Ejemplo de sesión interactiva con múltiples mensajes
+
+```text
+Ingrese un mensaje: Hello World!
 Ingrese un mensaje: Hola desde Guatemala
 Ingrese un mensaje: EXIT OFF
 ```
 
-Las tres líneas viajan por la **misma** conexión TCP: un solo handshake al inicio y un solo
-cierre al final, con tres intercambios de datos en medio.
+Los tres mensajes viajan a través de la **misma sesión TCP**: existe un único handshake al inicio, tres intercambios de datos en medio, y un único procedimiento de cierre al final.
 
 ---
 
-## 4. Cómo se genera el output y qué información TCP muestra
+## 3. Cómo se genera el output
 
-### 4.1 Ejemplo real de salida
+### 3.1 Arquitectura del Logger
 
+Cada vez que el programa envía o recibe un segmento relevante, se invoca `log_segment()`, el cual delega la construcción de la cadena en `format_segment()`. Esto garantiza que los mensajes mostrados correspondan directamente a los bytes reales que entraron o salieron de la interfaz de red.
+
+Puntos de registro en el código:
+* **`tcp_session_handshake()`:** Registra el `SYN` saliente y el `SYN, ACK` entrante.
+* **`send_control()`:** Centraliza y registra el envío de segmentos sin datos (`ACK` del handshake, `ACK` de los datos recibidos, `FIN+ACK` de cierre).
+* **`tcp_session_send_message()`:** Registra el segmento `PSH, ACK` con los datos del usuario.
+* **`tcp_session_recv()`:** Registra cada segmento TCP entrante que coincide con la 4-tupla de la conexión (incluyendo el `ACK` puro del servidor y el eco).
+* **`tcp_session_close()`:** Registra el segmento `FIN+ACK` y el `ACK` final.
+
+### 3.2 Cálculo de SEQ y ACK Relativos
+
+En el medio físico, los números de secuencia iniciales (ISN) son números aleatorios de 32 bits (10 dígitos). Si se mostraran los valores absolutos, la salida sería difícil de interpretar y comparar.
+
+Para resolver esto, el cliente almacena el ISN local (`local_isn`) y el ISN remoto (`remote_isn`) al completar el handshake, calculando los valores relativos de la misma forma en que lo hace Wireshark por defecto:
+
+```c
+uint32_t rel_seq = seq - (outgoing ? s->local_isn : s->remote_isn);
+uint32_t rel_ack = ack - (outgoing ? s->remote_isn : s->local_isn);
 ```
-[*] Conexión: 127.0.0.1:43127 → 127.0.0.1:5001
-[*] Puerto local: 43127  (úselo en la regla de firewall que descarta el RST del kernel)
+
+* En un segmento **saliente** (`Client → Server`): `SEQ` se calcula restando `local_isn`, mientras que `ACK` (que confirma bytes recibidos) se calcula restando `remote_isn`.
+* En un segmento **entrante** (`Server → Client`): `SEQ` se calcula restando `remote_isn`, mientras que `ACK` se calcula restando `local_isn`.
+
+Gracias a esta conversión, tanto en la consola como en Wireshark la sesión comienza con `SEQ=0` y `ACK=1`, permitiendo una correlación directa renglón por renglón.
+
+### 3.3 Formateo y escape de datos (`format_data`)
+
+Los datos se inspeccionan byte por byte. Si un byte corresponde a un carácter no imprimible o de control, se reemplaza por su secuencia de escape:
+* Saltos de línea → `\n`, retornos de carro → `\r`, tabulaciones → `\t`.
+* Comillas y barras invertidas → `\"`, `\\`.
+* Bytes binarios arbitrarios → `\xNN` (código hexadecimal en 2 dígitos).
+
+Esto evita desconfigurar la terminal y hace evidente la presencia del byte `\n` requerido por `ServerTCP.java`.
+
+---
+
+## 4. Qué información TCP muestra el programa
+
+### 4.1 Ejemplo real de salida en consola
+
+```text
+[*] Conexión: 127.0.0.1:45586 → 127.0.0.1:5001
+[*] Puerto local: 45586  (úselo en la regla de firewall que descarta el RST del kernel)
 
 ══════════════════ TCP SESSION ══════════════════
 Client → Server  [SYN]        SEQ=0
@@ -192,263 +191,248 @@ Client → Server  [ACK]        SEQ=1      ACK=1
 
 ────────────────── DATA ──────────────────
 
-Ingrese un mensaje: Hello World
-Client → Server  [PSH, ACK]   SEQ=1      ACK=1      LEN=12   DATA="Hello World\n"
-Server → Client  [ACK]        SEQ=1      ACK=13
-Server → Client  [PSH, ACK]   SEQ=1      ACK=13     LEN=12   DATA="Hello World\n"
-Client → Server  [ACK]        SEQ=13     ACK=13
+Ingrese un mensaje: Hello World!
+Client → Server  [PSH, ACK]   SEQ=1      ACK=1      LEN=13   DATA="Hello World!\n"
+Server → Client  [ACK]        SEQ=1      ACK=14
+Server → Client  [PSH, ACK]   SEQ=1      ACK=14     LEN=13   DATA="Hello World!\n"
+Client → Server  [ACK]        SEQ=14     ACK=14
 
 Ingrese un mensaje: EXIT OFF
-Client → Server  [PSH, ACK]   SEQ=13     ACK=13     LEN=9    DATA="EXIT OFF\n"
-Server → Client  [ACK]        SEQ=13     ACK=22
-Server → Client  [PSH, ACK]   SEQ=13     ACK=22     LEN=9    DATA="EXIT OFF\n"
-Client → Server  [ACK]        SEQ=22     ACK=22
+Client → Server  [PSH, ACK]   SEQ=14     ACK=14     LEN=9    DATA="EXIT OFF\n"
+Server → Client  [PSH, ACK]   SEQ=14     ACK=23     LEN=9    DATA="EXIT OFF\n"
+Client → Server  [ACK]        SEQ=23     ACK=23
 
 ────────────────── CLOSE ──────────────────
-Server → Client  [FIN, ACK]   SEQ=22     ACK=22
-Client → Server  [ACK]        SEQ=22     ACK=23
-Client → Server  [FIN, ACK]   SEQ=22     ACK=23
-Server → Client  [ACK]        SEQ=23     ACK=23
+Server → Client  [FIN, ACK]   SEQ=23     ACK=23
+Client → Server  [ACK]        SEQ=23     ACK=24
+Client → Server  [FIN, ACK]   SEQ=23     ACK=24
+Server → Client  [ACK]        SEQ=24     ACK=24
 
 ══════════════════ CONNECTION CLOSED ══════════════════
 ```
 
-### 4.2 Qué muestra cada campo
+### 4.2 Desglose de campos mostrados en consola
 
-| Campo | Significado | De dónde sale |
-|-------|-------------|---------------|
-| `Client → Server` / `Server → Client` | **quién envía y quién recibe** | parámetro `outgoing` de `format_segment()` |
-| `[SYN, ACK]` | **flags TCP** activos, en orden de Wireshark | `flags_to_string()` sobre `tcph->flags` |
-| `SEQ=` | **número de secuencia**, relativo al ISN del emisor | `ntohl(tcph->seq_num) - isn` |
-| `ACK=` | **número de reconocimiento**, relativo al ISN del otro extremo. Sólo se imprime si la bandera ACK está encendida, porque si no el campo no tiene significado (igual que Wireshark) | `ntohl(tcph->ack_num) - isn` |
-| `LEN=` | **longitud de los datos** del segmento, sin contar headers. Sólo aparece si hay datos | payload total − offset del header TCP |
-| `DATA=` | **datos** enviados o recibidos, escapados a una línea | `format_data()` |
+| Campo | Significado en el protocolo | Origen y justificación |
+|---|---|---|
+| `Client → Server` / `Server → Client` | **Sentido y extremos del segmento.** | Determinado por la dirección del paquete (`outgoing` en `format_segment()`). |
+| `[SYN]`, `[SYN, ACK]`, `[PSH, ACK]`, etc. | **Banderas TCP activas.** | Generadas por `flags_to_string()` evaluando la máscara de bits en el encabezado TCP, en el orden estándar de Wireshark. |
+| `SEQ=` | **Número de secuencia relativo.** | `seq - ISN_origen`. Indica la posición del primer byte de datos del segmento en el flujo del emisor. |
+| `ACK=` | **Número de acuse de recibo relativo.** | `ack - ISN_destino`. Indica el siguiente byte que se espera recibir del otro extremo. Solo se muestra si la bandera ACK está encendida. |
+| `LEN=` | **Longitud del payload TCP (datos).** | Tamaño total del segmento IP menos los encabezados IP y TCP. Solo se muestra si el segmento transporta datos ($LEN > 0$). |
+| `DATA="..."` | **Contenido del payload escapado.** | Representación legible del mensaje enviado o recibido en una sola línea. |
 
-Además el log incluye:
+### 4.3 Elementos adicionales de observabilidad
 
-* Los separadores `TCP SESSION` / `DATA` / `CLOSE` / `CONNECTION CLOSED`, que delimitan las
-  tres fases y hacen evidente **quién inició el cierre**: si la línea que aparece justo debajo
-  de `CLOSE` es `Server → Client [FIN, ACK]`, cerró el servidor.
-* El puerto local efímero, necesario para la regla de firewall.
-* Una advertencia `(fuera de orden o retransmisión: se esperaba SEQ=N)` cuando llega un
-  segmento cuyo SEQ no coincide con el esperado.
-
-### 4.3 Por qué SEQ y ACK son relativos
-
-Los números reales en el cable son de 10 dígitos: el ISN del cliente es `rand()` y el del
-servidor lo elige el kernel. Mostrarlos crudos hace la sesión ilegible.
-
-`format_segment()` le resta a cada número el ISN del extremo que lo generó:
-
-```c
-uint32_t rel_seq = seq - (outgoing ? s->local_isn : s->remote_isn);
-uint32_t rel_ack = ack - (outgoing ? s->remote_isn : s->local_isn);
-```
-
-Nótese el cruce: en un segmento **saliente**, el SEQ es nuestro (se resta `local_isn`) pero el
-ACK se refiere a los bytes del servidor (se resta `remote_isn`). En uno **entrante** es al revés.
-
-Esto es exactamente lo que hace Wireshark con *Relative sequence numbers* activado (que es su
-valor por defecto), y es la razón por la que ambas salidas se pueden comparar renglón por
-renglón sin traducir nada.
-
-### 4.4 Por qué `LEN=12` para `"Hello World"`
-
-`"Hello World"` tiene 11 caracteres. `tcp_session_send_message()` agrega un `\n` si el mensaje
-no lo trae, porque `ServerTCP.java` lee con `BufferedReader.readLine()`, que bloquea hasta
-encontrar un salto de línea. Ese `\n` es un byte real que viaja, cuenta en `LEN` y cuenta en la
-aritmética de números de secuencia: el SEQ del cliente pasa de 1 a **13**, no a 12.
+* **Separadores de fase:** Banners delimitadores (`TCP SESSION`, `DATA`, `CLOSE`, `CONNECTION CLOSED`) que permiten identificar instantáneamente la etapa de la conexión y quién tomó la iniciativa en el cierre.
+* **Detección de desorden / retransmisiones:** Si llega un segmento cuyo `SEQ` no coincide con el `ACK` esperado, el programa muestra una advertencia en consola: `(fuera de orden o retransmisión: se esperaba SEQ=N)` y responde con un `ACK` redundante para estabilizar la sesión.
+* **Cálculo de longitud `LEN`:** `"Hello World!"` contiene 12 caracteres visibles. Al enviarse, `tcp_session_send_message()` adjunta un salto de línea (`\n`) para satisfacer el `readLine()` del servidor Java. Por ello, el segmento viaja con `LEN=13` y el número `SEQ` subsiguiente avanza en 13 unidades ($1 + 13 = 14$).
 
 ---
 
-## 5. Validación de la opción de cierre (lo que pedía el enunciado)
+## 5. Cómo verificó el funcionamiento mediante Wireshark
 
-**El código proporcionado realiza la Opción 1: el cierre lo inicia el servidor.**
+### 5.1 Procedimiento de captura
 
-Evidencia en el código original:
+1. Iniciar Wireshark o `tcpdump` sobre la interfaz de loopback (`lo` en Linux, `lo0` en macOS) antes de ejecutar el cliente:
+   ```bash
+   sudo tcpdump -i lo -nn -w captura_sesion.pcap "tcp port 5001"
+   ```
+2. Configurar el filtro de visualización en Wireshark:
+   ```text
+   tcp.port == 5001
+   ```
+3. Verificar que Wireshark tenga activada la opción **Relative sequence numbers** en:  
+   *Edit → Preferences → Protocols → TCP → Relative sequence numbers* (habilitada por defecto).
+4. Ejecutar el servidor Java y el cliente en consolas separadas, enviar al menos dos mensajes (`Hello World!`, luego `EXIT OFF`).
+5. Detener la captura y analizar los paquetes.
 
-1. `run_session()` llamaba a `tcp_session_drain_until_close()` **antes** de `tcp_session_close()`.
-2. `tcp_session_drain_until_close()` se quedaba esperando un segmento del servidor con la
-   bandera FIN, lo reconocía (`s->ack++; send_control(s, TCP_ACK);`) y sólo entonces retornaba.
-3. Recién después `tcp_session_close()` enviaba el `FIN+ACK` del cliente.
+### 5.2 Correspondencia de campos entre Consola y Wireshark
 
-Es decir: FIN del servidor → ACK del cliente → FIN del cliente → ACK del servidor, que es la
-Opción 1 del enunciado.
+| Campo en la Consola | Campo en Wireshark | Observación |
+|---|---|---|
+| `Client → Server` / `Server → Client` | Columnas *Source* / *Destination* y puertos | Comprueba qué extremo originó el frame. |
+| `[SYN]`, `[SYN, ACK]`, `[PSH, ACK]`, etc. | Columna *Info* (flags entre corchetes) | Nomenclatura y orden idénticos a Wireshark. |
+| `SEQ=N` | Campo `Seq=N` en columna *Info* y árbol de detalle | Coincidencia exacta 1:1 gracias al cálculo relativo. |
+| `ACK=N` | Campo `Ack=N` en columna *Info* y árbol de detalle | Coincidencia exacta 1:1. |
+| `LEN=N` | Campo `Len=N` en columna *Info* | Tamaño de datos de aplicación sin headers. |
+| `DATA="Hello World!\n"` | Menú contextual → *Follow → TCP Stream* o panel de bytes | Muestra la carga útil exacta transmitida. |
 
-**La causa está en el servidor**, y por eso no hace falta modificarlo: el mensaje por defecto
-era `"EXIT OFF"`, y `ServerTCP.java` hace
+### 5.3 Fenómenos de red observados
 
-```java
-if (msg.contains("EXIT")) { break; }   // sale del ciclo de lectura
-...
-client.close();                        // ← esto genera el FIN del servidor
-```
+1. **Piggybacking del ACK del servidor:** En entornos de loopback, el kernel del servidor puede acoplar la confirmación de recepción (`ACK`) con el segmento de eco (`PSH, ACK`) en un solo paquete, reduciendo el total de frames observados.
+2. **Checksum Incorrect del kernel en loopback:** En Wireshark, los segmentos del servidor Java pueden marcarse como `[TCP Checksum Incorrect]`. Esto se debe al *Checksum Offloading* de la tarjeta de red virtual del sistema operativo. Por el contrario, los segmentos generados por nuestro cliente en `checksum.c` siempre muestran checksum válido, validando el cálculo manual del algoritmo.
+3. **Bloqueo del RST del Kernel:** Dado que el cliente opera fuera del stack TCP del sistema operativo, el firewall (`iptables`) descarta exitosamente los `RST` que el kernel genera al recibir el `SYN, ACK`, permitiendo que el cliente RAW complete el handshake.
 
-El servidor cierra el socket en cuanto recibe una línea que contiene `EXIT`, así que siempre es
-él quien manda el primer FIN.
+### 5.4 Análisis detallado de la captura incluida (`img/Wireshark.png`)
 
-**En la versión modificada se conserva ese orden.** Cuando el usuario escribe algo con `EXIT`,
-`is_exit_message()` lo detecta, el cliente espera el FIN del servidor y sólo después envía el
-suyo: Opción 1, exactamente igual que antes.
+En el repositorio se incluye la captura de pantalla [`img/Wireshark.png`](img/Wireshark.png), obtenida durante la ejecución en loopback con el cliente en el puerto efímero `45586` y el servidor en el puerto `5001`:
 
-La Opción 2 (cliente primero) aparece únicamente en el caso que el código original no
-contemplaba: si el usuario termina con Ctrl-D sin haber mandado nunca `EXIT`, el servidor sigue
-esperando líneas y no va a cerrar nunca, así que el cliente inicia el cierre. Sin este camino el
-programa se quedaría colgado hasta el timeout. **El orden de la Opción 1 no se modificó**; sólo
-se agregó una salida limpia para un escenario nuevo.
+![Captura de Wireshark](img/Wireshark.png)
+
+#### Desglose de los 14 paquetes de la captura:
+
+1. **Three-Way Handshake (Paquetes 1041 – 1043):**
+   * **Pkt 1041 (Cliente → Servidor):** `[SYN] Seq=0 Len=0`. El cliente propone la conexión.
+   * **Pkt 1042 (Servidor → Cliente):** `[SYN, ACK] Seq=0 Ack=1 Len=0`. El servidor acepta y acusa el byte del SYN.
+   * **Pkt 1043 (Cliente → Servidor):** `[ACK] Seq=1 Ack=1 Len=0`. Conexión formalmente establecida.
+2. **Mensaje 1 — `"Hello World!"` (Paquetes 1229 – 1232):**
+   * **Pkt 1229 (Cliente → Servidor):** `[PSH, ACK] Seq=1 Ack=1 Len=13`. Frame seleccionado en la captura; en el panel inferior se observa la representación ASCII y hexadecimal: `48 65 6c 6c 6f 20 57 6f 72 6c 64 21 0a` (`"Hello World!\n"`).
+   * **Pkt 1230 (Servidor → Cliente):** `[ACK] Seq=1 Ack=14 Len=0`. El servidor acusa los 13 bytes recibidos ($1 + 13 = 14$).
+   * **Pkt 1231 (Servidor → Cliente):** `[PSH, ACK] Seq=1 Ack=14 Len=13`. El servidor devuelve el eco del mensaje.
+   * **Pkt 1232 (Cliente → Servidor):** `[ACK] Seq=14 Ack=14 Len=0`. El cliente confirma la recepción del eco.
+3. **Mensaje 2 — `"EXIT OFF"` (Paquetes 1362 – 1364):**
+   * **Pkt 1362 (Cliente → Servidor):** `[PSH, ACK] Seq=14 Ack=14 Len=9 Data="EXIT OFF\n"`.
+   * **Pkt 1363 (Servidor → Cliente):** `[PSH, ACK] Seq=14 Ack=23 Len=9`. El servidor realiza *piggybacking*: confirma en un solo paquete los 9 bytes del cliente ($14 + 9 = 23$) y reenvía el eco de `"EXIT OFF\n"`.
+   * **Pkt 1364 (Cliente → Servidor):** `[ACK] Seq=23 Ack=23 Len=0`. El cliente confirma el eco.
+4. **Cierre de Conexión — Opción 1 iniciada por el Servidor (Paquetes 1367 – 1372):**
+   * **Pkt 1367 (Servidor → Cliente):** `[FIN, ACK] Seq=23 Ack=23 Len=0`. El servidor lee `EXIT`, invoca `client.close()` y envía el primer FIN.
+   * **Pkt 1370 (Cliente → Servidor):** `[ACK] Seq=23 Ack=24 Len=0`. El cliente acusa el byte del FIN ($23 + 1 = 24$).
+   * **Pkt 1371 (Cliente → Servidor):** `[FIN, ACK] Seq=23 Ack=24 Len=0`. El cliente envía su propio FIN.
+   * **Pkt 1372 (Servidor → Cliente):** `[ACK] Seq=24 Ack=24 Len=0`. El servidor confirma el FIN del cliente ($23 + 1 = 24$). Conexión cerrada.
 
 ---
 
-## 6. Qué NO se modificó (el protocolo sigue intacto)
+## 6. Validación de la opción de cierre de conexión
 
-* La construcción de los headers IPv4 y TCP (`ip_header.c`, `tcp_header.c`) — sin cambios.
-* El cálculo de checksums (`checksum.c`) — sin cambios.
-* La creación, envío y recepción por raw socket (`raw_socket.c`) — sin cambios.
-* `ServerTCP.java` — sin cambios.
-* La aritmética de números de secuencia: el SYN consume 1, los datos consumen `LEN`, el FIN
-  consume 1. Las mismas líneas que en el original, sólo que ahora comentadas.
-* El orden del cierre en la Opción 1.
+> **Requerimiento del enunciado:** Validar qué opción de cierre de conexión está realizando el código proporcionado.
 
-Los cambios son de **interacción** (ciclo de mensajes) y de **observabilidad** (log). Ningún
-segmento nuevo se inventa y ninguno de los que existían dejó de enviarse.
+### Conclusión: El código realiza la **Opción 1** (cierre iniciado por el servidor).
+
+#### Evidencia técnica:
+
+1. **Comportamiento de `ServerTCP.java` (diseñado exclusivamente para Opción 1):**
+   ```java
+   while (true) {
+       msg = in.readLine();
+       out.println(msg);
+       System.out.println("Message: " + msg);
+       if (msg.contains("EXIT")) { break; } // Sale del ciclo únicamente si contiene "EXIT"
+   }
+   client.close(); // <-- Genera inmediatamente el segmento FIN del servidor
+   ```
+   En cuanto el servidor recibe una línea con la palabra `"EXIT"`, sale de su bucle y ejecuta `client.close()`. Esto provoca que el kernel del servidor envíe el primer segmento `FIN+ACK` (paso 8 de la secuencia).
+
+2. **Comportamiento del cliente en `tcp_session.c`:**
+   * En el código base, `run_session()` llamaba a `tcp_session_drain_until_close()` **antes** de llamar a `tcp_session_close()`.
+   * `tcp_session_drain_until_close()` quedaba en espera del segmento `FIN` del servidor, le enviaba un `ACK` de respuesta, y recién entonces retornaba para que `tcp_session_close()` enviara el `FIN+ACK` del cliente.
+   * La secuencia es:
+     1. Servidor → Cliente: `FIN + ACK` (Pkt 1367 en la captura)
+     2. Cliente → Servidor: `ACK`       (Pkt 1370 en la captura)
+     3. Cliente → Servidor: `FIN + ACK` (Pkt 1371 en la captura)
+     4. Servidor → Cliente: `ACK`       (Pkt 1372 en la captura)
+   * Esta corresponde de manera idéntica a la **Opción 1** descrita en el enunciado.
+
+### 6.1 Por qué la Opción 2 no funciona en `ServerTCP.java` y no pudo modificarse
+
+El enunciado del laboratorio también menciona la existencia de una **Opción 2** (cierre iniciado por el cliente enviando `FIN+ACK` primero). Sin embargo:
+
+1. **`ServerTCP.java` no contempla la Opción 2:**  
+   Si el cliente intenta cerrar primero la conexión (por ejemplo, enviando `FIN+ACK` al presionar Ctrl-D sin haber enviado `"EXIT"`), el canal de lectura del servidor recibe un fin de flujo (`EOF`). En Java, `in.readLine()` devuelve `null` al llegar al fin de flujo.  
+   Como se observa en el código fuente de `ServerTCP.java`, el servidor **no valida si `msg == null`**:
+   ```java
+   msg = in.readLine();                 // Devuelve null ante un FIN del cliente
+   out.println(msg);                    // Imprime "null"
+   System.out.println("Message: " + msg);
+   if (msg.contains("EXIT")) { break; } // <-- ¡Lanza java.lang.NullPointerException!
+   ```
+   Al intentar evaluar `.contains("EXIT")` sobre una referencia `null`, la máquina virtual de Java lanza inmediatamente una excepción no controlada:
+   ```text
+   Exception in thread "main" java.lang.NullPointerException: Cannot invoke "String.contains(java.lang.CharSequence)" because "msg" is null
+           at ServerTCP.main(ServerTCP.java:19)
+   ```
+   Como resultado de esta excepción, el servidor colapsa abruptamente sin ejecutar jamás `client.close()`, lo que impide que envíe su respectivo `FIN+ACK` para completar el cierre de la Opción 2 de forma ordenada según el estándar TCP.
+
+2. **No fue posible modificar `ServerTCP.java` debido a las restricciones del enunciado:**  
+   En la página 1 del PDF del laboratorio (*Laboratorio TCP RAW.pdf*), las instrucciones especifican explícitamente:
+   > *"El estudiante debe trabajar principalmente sobre: `tcp_client.c` y `tcp_session.c`"*  
+   > *"No se requiere modificar la implementación del servidor para cumplir con los requisitos principales de esta tarea."*  
+
+   Dado que la directiva indicaba claramente no modificar el código del servidor, **se mantuvo `ServerTCP.java` intacto**, documentando esta limitación técnica y garantizando que la sesión opere bajo la **Opción 1**, que es la única implementada y soportada funcionalmente por el servidor provisto.
 
 ---
 
 ## 7. Cómo compilar y ejecutar
 
-### 7.1 Compilar
+### 7.1 Estructura del proyecto y targets del Makefile
+
+El directorio `ClientTCP` está organizado de la siguiente manera:
+* `src/`: Archivos de código fuente (`.c`) y encabezados (`.h`).
+* `build/obj/`: Archivos objeto intermedios (`.o`).
+* `build/bin/`: Ejecutables compilados (`tcp_client`, `test_log`).
+* `tcp_client`: Copia directa del binario en la raíz de `ClientTCP/` para ejecución rápida.
+
+El `Makefile` ofrece los siguientes comandos:
+
+| Comando | Descripción | Requiere privilegios (`sudo`) |
+|---|---|:---:|
+| `make` (o `make all`) | Compila todos los módulos, genera `build/bin/tcp_client` y copia `./tcp_client`. | No |
+| `make run [ARGS="..."]` | Ejecuta el cliente, detectando automáticamente si se requiere `sudo`. Admite argumentos en `ARGS`. | Sí (se invoca solo) |
+| `make test` | Compila y ejecuta la suite unitaria de validación de formato de logs (7 pruebas de segmento). | No |
+| `make clean` | Elimina la carpeta `build/`, los objetos `.o` y los ejecutables creados. | No |
+
+### 7.2 Compilación
 
 ```bash
 cd ClientTCP
-make clean && make          # genera ./tcp_client
-javac ../ServerTCP.java     # o compile el servidor donde lo tenga
+make clean && make          # Compila el cliente TCP
+javac ../ServerTCP.java     # Compila el servidor Java de prueba
 ```
 
-> `make clean` importa: el ZIP original traía archivos `.o` precompilados que ya no
-> corresponden al código fuente modificado.
-
-Verificación rápida del formato de salida, sin root ni servidor:
-
+Verificación automática del formato de log (Requerimiento 2):
 ```bash
 make test
 ```
 
-### 7.2 Regla de firewall (obligatoria)
+### 7.3 Regla obligatoria de Firewall
 
-El cliente nunca llama a `connect()`, así que el kernel no tiene registro de esta conexión.
-Cuando llega el `SYN+ACK` del servidor, el kernel no lo reconoce como perteneciente a ninguna
-conexión suya y responde con un `RST` que aborta el handshake antes de que el programa pueda
-completarlo.
+Como el cliente genera paquetes artesanalmente con raw sockets sin usar `connect()`, el kernel del sistema operativo local no reconoce la conexión y responderá con un paquete `RST` que corta el handshake. Es indispensable descartar esos `RST` salientes para el rango de puertos efímeros del cliente (40000 a 49999):
 
-El cliente elige un puerto efímero **aleatorio entre 40000 y 49999** en cada ejecución
-(`40000 + rand() % 10000` en `tcp_session_open()`). Por eso conviene crear la regla para todo el
-rango una sola vez, en lugar de leer el puerto y crearla en cada corrida:
-
-**Linux:**
-
+**En Linux (`iptables`):**
 ```bash
 sudo iptables -A OUTPUT -p tcp --sport 40000:49999 --tcp-flags RST RST -j DROP
 
-# al terminar:
+# Al finalizar la práctica, eliminar la regla con:
 sudo iptables -D OUTPUT -p tcp --sport 40000:49999 --tcp-flags RST RST -j DROP
 ```
 
-**macOS:**
-
+**En macOS (`pfctl`):**
 ```bash
 echo 'block drop out proto tcp from any port 40000:49999 flags R/R' | sudo pfctl -f -
 sudo pfctl -e
 
-# al terminar:
+# Al finalizar, restaurar la configuración con:
 sudo pfctl -f /etc/pf.conf
 ```
 
-### 7.3 Ejecutar
+### 7.4 Ejecución paso a paso
 
+**Terminal 1 — Iniciar el servidor:**
 ```bash
-# terminal 1
+# Desde la raíz de lab05 donde está ServerTCP.class
 java ServerTCP
-
-# terminal 2
-sudo ./tcp_client -l 127.0.0.1 -s 127.0.0.1 -p 5001 -i lo   # macOS: -i lo0
 ```
+
+**Terminal 2 — Iniciar el cliente:**
+* **Vía `make run`:**
+  ```bash
+  cd ClientTCP
+  make run ARGS="-l 127.0.0.1 -s 127.0.0.1 -p 5001 -i lo"
+  ```
+* **O vía binario directo:**
+  ```bash
+  cd ClientTCP
+  sudo ./tcp_client -l 127.0.0.1 -s 127.0.0.1 -p 5001 -i lo
+  ```
 
 ---
 
-## 8. Cómo se verificó con Wireshark
+## 8. Limitaciones conocidas
 
-### 8.1 Captura
-
-1. Abrir Wireshark **antes** de correr el cliente y capturar en la interfaz de loopback
-   (`lo` en Linux, `lo0` en macOS). Wireshark necesita permisos: en Linux, `sudo wireshark` o
-   tener el usuario en el grupo `wireshark`.
-2. Filtro de visualización: `tcp.port == 5001`.
-3. Confirmar que *Relative sequence numbers* esté activo, que es el valor por defecto:
-   **Edit → Preferences → Protocols → TCP → Relative sequence numbers**. Si está desactivado,
-   Wireshark mostrará los números absolutos y no coincidirán con el log del programa.
-4. Correr el cliente, escribir dos o tres mensajes y terminar con `EXIT OFF`.
-5. Detener la captura y guardarla.
-
-Alternativa por línea de comandos, útil si Wireshark no está disponible en la VM:
-
-```bash
-sudo tcpdump -i lo -w lab05.pcap 'tcp port 5001'
-```
-
-y después abrir `lab05.pcap` en Wireshark.
-
-### 8.2 Qué se comparó
-
-La comprobación consiste en poner el log del programa al lado de la lista de paquetes de
-Wireshark y verificar, paquete por paquete, que coincidan las cuatro cosas:
-
-| Del log del programa | De Wireshark |
-|----------------------|--------------|
-| `Client → Server` / `Server → Client` | columnas *Source* y *Destination* + los puertos |
-| `[PSH, ACK]` | columna *Info*, que usa exactamente los mismos nombres y el mismo orden |
-| `SEQ=` / `ACK=` | campos `Seq=` / `Ack=` de la columna *Info* |
-| `LEN=` | campo `Len=` de la columna *Info* |
-| `DATA="Hello World\n"` | clic derecho en el paquete → **Follow → TCP Stream**, o el panel de bytes |
-
-La sesión completa debe verse como 15 paquetes para dos mensajes: 3 del handshake, 4 por cada
-mensaje, y 4 del cierre.
-
-### 8.3 Diferencias esperadas entre el log y Wireshark
-
-Tres cosas que aparecen en la captura y conviene saber interpretar, porque no son errores:
-
-1. **El ACK puro del servidor puede no aparecer como paquete separado.** El kernel del servidor
-   puede juntar el ACK de nuestros datos con el eco en un solo segmento `PSH, ACK`
-   (*piggybacking*), sobre todo en loopback, donde Java responde de inmediato. En ese caso los
-   pasos 5 y 6 de la secuencia del enunciado viajan en un único paquete. El log refleja lo que
-   realmente ocurrió: si el ACK puro no llegó, no se imprime. Ambos comportamientos son
-   correctos según TCP.
-2. **`RST` salientes del cliente**, si la regla de firewall no está puesta o el puerto quedó
-   fuera del rango. Si aparecen, el handshake se corta y el programa reporta timeout.
-3. **`checksum incorrect` en los paquetes que genera el kernel del servidor.** Es el efecto del
-   *checksum offloading*: el kernel deja el campo sin calcular porque normalmente lo completa la
-   tarjeta de red. Los paquetes **del cliente** sí deben tener checksum válido, porque los
-   calculamos nosotros en `checksum.c`; ese es justamente un buen control de que el cálculo del
-   pseudo-header está bien hecho.
-
-### 8.4 Entregable de la captura
-
-Incluir en el ZIP una captura de pantalla (o el `.pcap`) donde se vea la sesión completa: los
-3 paquetes del handshake, los intercambios de datos de al menos dos mensajes distintos, y los
-4 paquetes del cierre en el orden de la Opción 1.
-
----
-
-## 9. Limitaciones conocidas
-
-Se mantienen las del laboratorio base, y son deliberadas: el objetivo es mostrar el formato de
-los segmentos, no reemplazar el stack del sistema operativo.
-
-* No hay retransmisión propia ni control de congestión. Si un segmento se pierde, la sesión se
-  cae por timeout en lugar de reintentar.
-* No se respeta la ventana anunciada del servidor: se envía el mensaje completo sin verificar
-  cuánto espacio declaró. En loopback con mensajes cortos nunca se llega al límite.
-* No hay opciones TCP (MSS, window scaling, SACK): el header siempre mide 20 bytes.
-* No se implementa `TIME_WAIT`; el proceso termina apenas recibe el ACK final.
-* Un mensaje se limita a 1023 bytes y viaja en un solo segmento; no hay segmentación.
-* La IP local debe ser una dirección real de la máquina. El programa no hace *spoofing*.
+El cliente tiene fines didácticos y mantiene las limitaciones conceptuales del diseño base:
+* **Sin retransmisiones automáticas:** Si un paquete se pierde en la red física, la conexión finaliza por timeout.
+* **Sin control de congestión ni ventana deslizante:** Los segmentos asumen capacidad en el receptor sin ajustar dinámicamente la ventana anunciada.
+* **Sin opciones TCP:** La cabecera TCP tiene un tamaño fijo de 20 bytes (sin MSS, SACK ni Window Scaling).
+* **Sin estado TIME_WAIT:** Al recibir el último ACK, el proceso finaliza inmediatamente liberando los recursos del socket crudo.
+* **Tamaño de mensaje:** Los mensajes se limitan a 1023 bytes por segmento (sin segmentación a nivel de aplicación).
+* **Sin IP Spoofing:** La dirección IP origen debe pertenecer a una interfaz real del host.
