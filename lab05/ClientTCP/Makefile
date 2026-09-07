@@ -16,7 +16,14 @@ $(TARGET): $(OBJS)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-clean:
-	rm -f *.o $(TARGET)
+# Verifica el formato del log (Requerimiento 2). No necesita root ni servidor.
+test: test_log
+	./test_log
 
-.PHONY: all clean
+test_log: test_log.c tcp_session.c ip_header.o tcp_header.o checksum.o raw_socket.o
+	$(CC) $(CFLAGS) -o test_log test_log.c ip_header.o tcp_header.o checksum.o raw_socket.o $(LDFLAGS)
+
+clean:
+	rm -f *.o $(TARGET) test_log
+
+.PHONY: all clean test
