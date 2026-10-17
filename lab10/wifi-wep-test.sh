@@ -161,24 +161,46 @@ for s in $IFACE $extras; do
   check="$check $s"
 done
 
-# hostapd builds without WEP support refuse the config and the interface never
-# comes up, so confirm every enabled AP is actually broadcasting before reporting success.
+# Ask netifd and hostapd, never iwinfo alone: iwinfo reads the SSID and the
+# encryption from the config file netifd handed to hostapd, so it still reports
+# "ESSID: ..." and "WEP" after hostapd refused that file and nothing broadcasts.
+wireless_status() { ubus call network.wireless status 2>/dev/null || true; }
+radio_of() { uci -q get "wireless.$1.device"; }
+ifname_of() {
+  wireless_status | jsonfilter -e "@.$(radio_of "$1").interfaces[@.section=\"$1\"].ifname" 2>/dev/null || true
+}
+hostapd_field() { ubus call "hostapd.$1" get_status 2>/dev/null | jsonfilter -e "@.$2" 2>/dev/null || true; }
+broadcasting() {
+  ifname=$(ifname_of "$1")
+  [ -n "$ifname" ] && [ "$(hostapd_field "$ifname" status)" = ENABLED ]
+}
+# netifd gives up on a radio after hostapd refuses its config; no point waiting longer.
+setup_failed() {
+  [ "$(wireless_status | jsonfilter -e "@.$(radio_of "$1").retry_setup_failed" 2>/dev/null)" = true ]
+}
+
 pending=$check
+gave_up=0
 i=0
-while [ -n "$pending" ] && [ $i -lt 20 ]; do
+while [ -n "$pending" ] && [ $gave_up = 0 ] && [ $i -lt 20 ]; do
   sleep 1
   i=$((i + 1))
   still=
   for s in $pending; do
-    iwinfo 2>/dev/null | grep -qF "ESSID: \"$(uci -q get "wireless.$s.ssid")\"" || still="$still $s"
+    if ! broadcasting "$s"; then
+      still="$still $s"
+      if setup_failed "$s"; then gave_up=1; fi
+    fi
   done
   pending=$still
 done
 
 if [ -n "$pending" ]; then
   for s in $pending; do
-    echo "error: wireless.$s ('$(uci -q get "wireless.$s.ssid")') did not come up after 20 s." >&2
+    echo "error: wireless.$s ('$(uci -q get "wireless.$s.ssid")') is not broadcasting after $i s." >&2
   done
+  # "unknown configuration item 'wep_key0'" means hostapd was compiled without WEP.
+  logread 2>/dev/null | grep -E "hostapd: .*(unknown configuration item|errors found)" | tail -4 >&2 || true
   echo "Likely cause: this firmware's hostapd was built without WEP, or does not accept '$encryption'." >&2
   echo "Check 'logread | grep -i hostapd'. Restore with: cp $backup /etc/config/wireless && wifi reload" >&2
   exit 1
@@ -186,9 +208,12 @@ fi
 
 status=0
 for s in $check; do
-  ssid=$(uci -q get "wireless.$s.ssid")
-  enc=$(iwinfo 2>/dev/null | grep -A 6 -F "ESSID: \"$ssid\"" | sed -n 's/^ *Encryption: *//p' | head -1)
-  echo "$s: '$ssid' up, encryption: ${enc:-unknown}"
+  ifname=$(ifname_of "$s")
+  ssid=$(hostapd_field "$ifname" ssid)
+  # hostapd is running this config now, so iwinfo's reading of it is accurate.
+  enc=$(iwinfo "$ifname" info 2>/dev/null | sed -n 's/^ *Encryption: *//p')
+  echo "$s ($ifname): '$ssid' broadcasting, encryption: ${enc:-unknown}"
+  [ "$ssid" = "$(uci -q get "wireless.$s.ssid")" ] || { echo "error: $ifname broadcasts '$ssid', not the configured SSID" >&2; status=1; }
   case $enc in *WEP*) ;; *) echo "error: '$ssid' is up but not on WEP" >&2; status=1 ;; esac
 done
 [ $status -eq 0 ] || { echo "Restore with: cp $backup /etc/config/wireless && wifi reload" >&2; exit 1; }
