@@ -39,7 +39,7 @@ The whole game is therefore **IVs per second**:
 The Intel AC8260 injected only part of the time on 18 Oct 2026. At 06:47 on channel 1
 no AP answered. At 07:26 on channel 1, one nearby AP answered 30/30, a second 28/30,
 and a third did not answer. Test the target itself with
-`sudo ./injection-test.sh -i <iface> -c <channel> -b <AP_BSSID>`, and repeat it before
+`sudo ./scripts/injection-test.sh -i <iface> -c <channel> -b <AP_BSSID>`, and repeat it before
 relying on a card. Adapters such as an Atheros AR9271 USB or a MediaTek MT7921AU are
 often suggested for active mode. Neither has been tested in this lab.
 
@@ -52,6 +52,8 @@ tests on 17–18 Oct and failed in others. The cause is not known yet.
 ---
 
 ## How the scripts work
+
+The laptop scripts are in `scripts/`.
 
 ### `wep-crack.sh`
 
@@ -135,7 +137,7 @@ The `.cap` file and recovered key are your **evidence for the GES report**.
 ## Cleanup
 
 The scripts clean up on exit. If a run was killed and WiFi stays dark, run
-`sudo ./wifi-recover.sh -i wlp2s0`, or follow the steps in
+`sudo ./scripts/wifi-recover.sh -i wlp2s0`, or follow the steps in
 [COMMANDS.md](COMMANDS.md#8-wifi-disappeared).
 
 > `airmon-ng check kill` only **stops** NetworkManager and wpa_supplicant for
@@ -148,11 +150,11 @@ The scripts clean up on exit. If a run was killed and WiFi stays dark, run
 
 | Symptom | Fix |
 |---|---|
-| `aireplay-ng --test` → "no answer / 0 APs" | Lock the card to the AP's channel first. `sudo ./injection-test.sh -i wlp2s0 -c N -b <AP_BSSID>` does that and prints the replies per AP. The AC8260 may not answer on some runs (see Hardware). |
+| `aireplay-ng --test` → "no answer / 0 APs" | Lock the card to the AP's channel first. `sudo ./scripts/injection-test.sh -i wlp2s0 -c N -b <AP_BSSID>` does that and prints the replies per AP. The AC8260 may not answer on some runs (see Hardware). |
 | Script says injection failed and went passive | Expected when the card can't inject against the target. The AC8260 does this some of the time; passive capture still works. |
 | Fake-auth keeps failing | Set the GL AP to **Open** WEP (not Shared) for first practice; Shared-key needs a PRGA xorfile. |
 | `#Data` not climbing in active mode | You're probably not injecting — check the card, antenna, and that you're close to the AP. |
-| Only `lo` after the script exits | The card stayed in monitor mode. Run `sudo ./wifi-recover.sh -i wlp2s0`; COMMANDS.md §8 has the manual steps. |
+| Only `lo` after the script exits | The card stayed in monitor mode. Run `sudo ./scripts/wifi-recover.sh -i wlp2s0`; COMMANDS.md §8 has the manual steps. |
 | No `wlan0` | Fedora names it `wlp…`; run `iw dev`. |
 | Router AP not broadcasting after `wifi-wep-test.sh` | Read the hostapd log on the router (COMMANDS.md §7). The firmware may have been built without WEP. |
 

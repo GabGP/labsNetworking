@@ -15,22 +15,23 @@
 #                 half of the writeup.
 #
 # Usage:
-#   sudo ./wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N]
+#   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N]
 #
 # Example:
-#   sudo ./wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
+#   sudo ./scripts/wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
 #
 # Monitor mode, the capture and the WiFi recovery come from wifi-lib.sh, the same
 # code that airodump.sh and injection-test.sh use. Cleanup runs on exit, including
-# Ctrl-C. If WiFi still stays dark, run ./wifi-recover.sh -i <iface>.
+# Ctrl-C. If WiFi still stays dark, run ./scripts/wifi-recover.sh -i <iface>.
 #
 set -u
 
-LAB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+LAB_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 LOGDIR="$LAB_DIR/logs"
 AIRMON_LOG="$LOGDIR/airmon.log"
 # shellcheck source=wifi-lib.sh
-source "$LAB_DIR/wifi-lib.sh"
+source "$SCRIPT_DIR/wifi-lib.sh"
 
 # ---- defaults -------------------------------------------------------------
 IFACE=""

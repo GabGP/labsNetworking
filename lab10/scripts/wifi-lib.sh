@@ -10,7 +10,7 @@
 # before it calls anything below.
 #
 # Typical use:
-#   source "$LAB_DIR/wifi-lib.sh"
+#   source "$SCRIPT_DIR/wifi-lib.sh"
 #   wifi_preflight airmon-ng airodump-ng ...
 #   wifi_guard "$IFACE"              # from here on, any exit restores WiFi
 #   wifi_monitor_start "$IFACE"      # sets MON

@@ -6,17 +6,18 @@
 # styles (see wifi-lib.sh) and changes nothing on a card that is already fine.
 #
 # Usage:
-#   sudo ./wifi-recover.sh [-i wlp2s0]
+#   sudo ./scripts/wifi-recover.sh [-i wlp2s0]
 #
 # Without -i it uses the first Wi-Fi interface that iw lists.
 #
 set -u
 
-LAB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+LAB_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 LOGDIR="$LAB_DIR/logs"
 AIRMON_LOG="$LOGDIR/airmon.log"
 # shellcheck source=wifi-lib.sh
-source "$LAB_DIR/wifi-lib.sh"
+source "$SCRIPT_DIR/wifi-lib.sh"
 
 IFACE=""
 while getopts ":i:h" opt; do

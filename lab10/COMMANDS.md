@@ -27,21 +27,21 @@ sudo dnf install aircrack-ng
 ## 3. Find the target's BSSID and channel
 
 ```bash
-sudo ./airodump.sh -i wlp2s0            # lists every AP with its BSSID and CH; Ctrl-C stops and restores WiFi
-sudo ./airodump.sh -i wlp2s0 -c 6       # same, locked to channel 6
-sudo ./airodump.sh -i wlp2s0 -B abg    # also hop 5 GHz channels (AC8260 only)
+sudo ./scripts/airodump.sh -i wlp2s0            # lists every AP with its BSSID and CH; Ctrl-C stops and restores WiFi
+sudo ./scripts/airodump.sh -i wlp2s0 -c 6       # same, locked to channel 6
+sudo ./scripts/airodump.sh -i wlp2s0 -B abg    # also hop 5 GHz channels (AC8260 only)
 ```
 
 ## 4. Run the attack with the script
 
 ```bash
-./wep-crack.sh -h                       # full usage
+./scripts/wep-crack.sh -h                       # full usage
 
 # Passive: listen only (works on the Intel AC8260)
-sudo ./wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m passive -o practice
+sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m passive -o practice
 
 # Active: fake-auth + ARP replay (needs a card that injects against the AP)
-sudo ./wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
+sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
 ```
 
 | Flag | Meaning | Default |
@@ -70,7 +70,7 @@ Useful for debugging when the script misbehaves. The first test is also a script
 which sets the channel before it runs and restores WiFi afterwards:
 
 ```bash
-sudo ./injection-test.sh -i wlp2s0 -c 1 -b <AP_BSSID>   # PASS = that AP answered; replies per AP are printed
+sudo ./scripts/injection-test.sh -i wlp2s0 -c 1 -b <AP_BSSID>   # PASS = that AP answered; replies per AP are printed
 
 # By hand. wlp2s0mon exists only on separate-vif cards (Intel); single-vif cards
 # (RTL8723BE) use wlp2s0 itself.
@@ -116,7 +116,7 @@ ssh root@your-router-ip "cp /root/wireless.<timestamp>.bak /etc/config/wireless 
 ## 8. WiFi disappeared?
 
 ```bash
-sudo ./wifi-recover.sh -i wlp2s0        # managed mode back, NetworkManager restarted
+sudo ./scripts/wifi-recover.sh -i wlp2s0        # managed mode back, NetworkManager restarted
 
 # By hand. Still in monitor mode? "type monitor" means yes
 iw dev wlp2s0 info | grep type

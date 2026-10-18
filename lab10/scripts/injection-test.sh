@@ -12,17 +12,18 @@
 # repeat the test before relying on a card.
 #
 # Usage:
-#   sudo ./injection-test.sh -i wlp2s0 -c 1 [-b <AP_BSSID>]
+#   sudo ./scripts/injection-test.sh -i wlp2s0 -c 1 [-b <AP_BSSID>]
 #
 # Exit status: 0 = injection works, 1 = it does not, or the setup failed.
 #
 set -u
 
-LAB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+LAB_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 LOGDIR="$LAB_DIR/logs"
 AIRMON_LOG="$LOGDIR/airmon.log"
 # shellcheck source=wifi-lib.sh
-source "$LAB_DIR/wifi-lib.sh"
+source "$SCRIPT_DIR/wifi-lib.sh"
 
 IFACE=""
 CHANNEL=""

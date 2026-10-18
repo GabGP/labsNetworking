@@ -10,17 +10,18 @@
 # (-B abg); the RTL8723BE cannot.
 #
 # Usage:
-#   sudo ./airodump.sh -i wlp2s0                         # hop 2.4 GHz channels, list APs
-#   sudo ./airodump.sh -i wlp2s0 -B abg                  # hop 2.4 and 5 GHz channels
-#   sudo ./airodump.sh -i wlp2s0 -c 6 [-b <AP_BSSID>] [-w prefix]
+#   sudo ./scripts/airodump.sh -i wlp2s0                # hop 2.4 GHz channels, list APs
+#   sudo ./scripts/airodump.sh -i wlp2s0 -B abg          # hop 2.4 and 5 GHz channels
+#   sudo ./scripts/airodump.sh -i wlp2s0 -c 6 [-b <AP_BSSID>] [-w prefix]
 #
 set -u
 
-LAB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+LAB_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 LOGDIR="$LAB_DIR/logs"
 AIRMON_LOG="$LOGDIR/airmon.log"
 # shellcheck source=wifi-lib.sh
-source "$LAB_DIR/wifi-lib.sh"
+source "$SCRIPT_DIR/wifi-lib.sh"
 
 IFACE=""
 CHANNEL=""
