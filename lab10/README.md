@@ -4,6 +4,9 @@ Automation and notes for the authorized WEP exercise (CS VIII). The goal is to
 capture traffic from an access point **you are authorized to test** and recover
 its WEP key with a statistical/PTW attack on captured IVs — **no dictionary**.
 
+Commands are in [COMMANDS.md](COMMANDS.md). This file covers the concepts, what
+the scripts do, what their output means, and troubleshooting.
+
 > ⚠️ **Authorized use only.** Run this against your own GL-AR300M16 while
 > practicing, and against the class router **only** during the evaluation
 > window. WEP attacks on networks you don't own are illegal.
@@ -41,63 +44,39 @@ AR9271 (or confirmed MT7921) for the active attack.
 
 ---
 
-## Prerequisites (Fedora)
+## How the scripts work
 
-```bash
-sudo dnf install aircrack-ng
-```
+### `wep-crack.sh`
 
-Find your WiFi interface name (Fedora uses `wlp…`, not `wlan0`):
+1. Stops NetworkManager and wpa_supplicant (`airmon-ng check kill`) and puts the
+   card into monitor mode.
+2. Locks the monitor interface to the AP's channel and starts `airodump-ng` on
+   the BSSID, writing `logs/<prefix>-01.cap` and `logs/<prefix>-01.csv`.
+3. **Active mode only:** runs `aireplay-ng --test`. If injection fails, it
+   switches to passive mode, so it never silently does nothing. If injection
+   works, it starts fake-auth and ARP replay.
+4. Every 15 s it prints the IV count from the CSV. Once there are at least 5000
+   IVs and at least 2000 new ones since the last attempt, it runs `aircrack-ng`.
+5. When the key is found, it writes `logs/<prefix>.key` and exits.
 
-```bash
-iw dev        # look for the wlp… interface, e.g. wlp2s0
-```
+Notes:
 
----
+- Output goes to `logs/`, which is gitignored.
+- The thresholds (5000 IVs, then every +2000) are hard-coded.
+- On exit, including Ctrl-C, the script stops the monitor interface and restarts
+  NetworkManager.
 
-## Usage
+### `wifi-wep-test.sh`
 
-```bash
-chmod +x wep-crack.sh
-sudo ./wep-crack.sh -i <iface> -b <AP_BSSID> -c <CHANNEL> [options]
-```
+Runs **on the router**, not the laptop. It backs up `/etc/config/wireless`,
+puts the main AP on WEP with the keys you give it, and checks netifd and
+hostapd that the AP is really broadcasting. It doesn't rely on `iwinfo` alone,
+because `iwinfo` still reports the WEP settings after hostapd has refused them.
 
-### Options
-
-| Flag | Meaning | Default |
-|------|---------|---------|
-| `-i` | WiFi interface (e.g. `wlp2s0`, `wlan0`) | *(required)* |
-| `-b` | Target AP BSSID (MAC) | *(required)* |
-| `-c` | Channel the AP is on | *(required)* |
-| `-e` | AP ESSID (name) — helps fake-auth on some APs | *(none)* |
-| `-m` | `active` (inject) or `passive` (listen only) | `active` |
-| `-o` | Output file prefix | `wepcap` |
-| `-t` | IV re-check threshold | `20000` |
-
-### First, find the target's BSSID and channel
-
-```bash
-sudo airmon-ng check kill
-sudo airmon-ng start wlp2s0
-sudo airodump-ng wlp2s0mon          # note the BSSID + CH of your AP, then Ctrl-C
-sudo airmon-ng stop wlp2s0mon
-sudo systemctl start NetworkManager
-```
-
-### Passive practice run (works on the AC8260)
-
-```bash
-sudo ./wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m passive -o practice
-```
-
-### Active attack (needs AR9271 / injecting card)
-
-```bash
-sudo ./wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
-```
-
-The script auto-runs `aireplay-ng --test` first; **if injection fails it falls
-back to passive automatically** so it never silently does nothing.
+- Give it 1–4 keys. Each is 5 or 13 ASCII characters, or 10 or 26 hex digits.
+  152-bit keys are not supported by the router's driver.
+- Leave the router on this config only for the lab. Restore WPA2 from the
+  backup it made.
 
 ---
 
@@ -117,19 +96,14 @@ The `.cap` file and recovered key are your **evidence for the GES report**.
 
 ---
 
-## Cleanup / "my WiFi disappeared"
+## Cleanup
 
-The script restores networking automatically on exit (even Ctrl-C). If a run is
-ever killed uncleanly and WiFi stays dark, run the restore ritual by hand:
+The script cleans up on exit. If a run was killed and WiFi stays dark, follow
+the recovery steps in [COMMANDS.md](COMMANDS.md#8-wifi-disappeared).
 
-```bash
-sudo airmon-ng stop wlp2s0mon          # return the card to managed mode FIRST
-sudo systemctl start NetworkManager    # then bring networking back
-```
-
-> `airmon-ng check kill` only **stops** NetworkManager/wpa_supplicant for the
-> capture — it's reversible. Always `airmon-ng stop …mon` **before** restarting
-> NetworkManager, or NM won't re-adopt the interface.
+> `airmon-ng check kill` only **stops** NetworkManager and wpa_supplicant for
+> the capture, so it's reversible. Always stop monitor mode **before**
+> restarting NetworkManager, or NM won't re-adopt the interface.
 
 ---
 
@@ -138,9 +112,11 @@ sudo systemctl start NetworkManager    # then bring networking back
 | Symptom | Fix |
 |---|---|
 | `aireplay-ng --test` → "no answer / 0 APs" | Lock the monitor iface to the AP's channel first (`iw dev <mon> set channel N`), then retest. On AC8260 it will still fail — that's expected. |
+| Script says injection failed and went passive | Expected on the AC8260. Use an AR9271 with `-m active`. |
 | Fake-auth keeps failing | Set the GL AP to **Open** WEP (not Shared) for first practice; Shared-key needs a PRGA xorfile. |
 | `#Data` not climbing in active mode | You're probably not injecting — check the card, antenna, and that you're close to the AP. |
 | No `wlan0` | Fedora names it `wlp…`; run `iw dev`. |
+| Router AP not broadcasting after `wifi-wep-test.sh` | Read the hostapd log on the router (COMMANDS.md §7). The firmware may have been built without WEP. |
 
 ---
 
