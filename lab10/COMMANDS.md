@@ -27,11 +27,9 @@ sudo dnf install aircrack-ng
 ## 3. Find the target's BSSID and channel
 
 ```bash
-sudo airmon-ng check kill               # stop NetworkManager/wpa_supplicant (reversible)
-sudo airmon-ng start wlp2s0             # creates wlp2s0mon
-sudo airodump-ng wlp2s0mon              # note the BSSID and CH of your AP, then Ctrl-C
-sudo airmon-ng stop wlp2s0mon           # monitor mode off FIRST
-sudo systemctl start NetworkManager     # then bring networking back
+sudo ./airodump.sh -i wlp2s0            # lists every AP with its BSSID and CH; Ctrl-C stops and restores WiFi
+sudo ./airodump.sh -i wlp2s0 -c 6       # same, locked to channel 6
+sudo ./airodump.sh -i wlp2s0 -B abg    # also hop 5 GHz channels (AC8260 only)
 ```
 
 ## 4. Run the attack with the script
@@ -68,9 +66,14 @@ cat logs/cap_gl.key                                      # recovered key (once f
 
 ## 6. Do the same steps by hand
 
-Useful for debugging when the script misbehaves.
+Useful for debugging when the script misbehaves. The first test is also a script,
+which sets the channel before it runs and restores WiFi afterwards:
 
 ```bash
+sudo ./injection-test.sh -i wlp2s0 -c 1 -b <AP_BSSID>   # PASS = that AP answered; replies per AP are printed
+
+# By hand. wlp2s0mon exists only on separate-vif cards (Intel); single-vif cards
+# (RTL8723BE) use wlp2s0 itself.
 MON=wlp2s0mon
 MYMAC=$(cat /sys/class/net/$MON/address)
 
@@ -113,7 +116,9 @@ ssh root@your-router-ip "cp /root/wireless.<timestamp>.bak /etc/config/wireless 
 ## 8. WiFi disappeared?
 
 ```bash
-# Still in monitor mode? "type monitor" means yes
+sudo ./wifi-recover.sh -i wlp2s0        # managed mode back, NetworkManager restarted
+
+# By hand. Still in monitor mode? "type monitor" means yes
 iw dev wlp2s0 info | grep type
 
 # Single-interface drivers (e.g. the RTL8723BE) keep the managed name in monitor mode.
