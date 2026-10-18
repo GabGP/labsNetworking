@@ -54,6 +54,7 @@ sudo ./wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
 | `-e` | AP ESSID (helps fake-auth on some APs) | *(none)* |
 | `-m` | `active` or `passive` | `active` |
 | `-o` | Output prefix; files go to `logs/` | `wepcap` |
+| `-t` | IVs gained before `aircrack-ng` runs again (first try at 5000) | `20000` |
 
 What the script does at each step, and why: see [README.md](README.md#how-the-scripts-work).
 

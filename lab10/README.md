@@ -56,13 +56,13 @@ AR9271 (or confirmed MT7921) for the active attack.
    switches to passive mode, so it never silently does nothing. If injection
    works, it starts fake-auth and ARP replay.
 4. Every 15 s it prints the IV count from the CSV. Once there are at least 5000
-   IVs and at least 2000 new ones since the last attempt, it runs `aircrack-ng`.
+   IVs it runs `aircrack-ng`, then runs it again each time the count grows by
+   `-t` (default 20000).
 5. When the key is found, it writes `logs/<prefix>.key` and exits.
 
 Notes:
 
 - Output goes to `logs/`, which is gitignored.
-- The thresholds (5000 IVs, then every +2000) are hard-coded.
 - On exit, including Ctrl-C, the script stops the monitor interface and restarts
   NetworkManager.
 
