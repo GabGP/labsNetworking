@@ -11,11 +11,11 @@
 # using the backup created by this script.
 #
 # Runs ON the router (BusyBox ash). From the host laptop connected to the LAN port:
-#   ssh root@your-router-ip "sh -s -- '<key1>' ['<key2>' ...]" < wifi-wep-test.sh
+#   ssh root@your-router-ip "sh -s -- '<key1>' ['<key2>' ...]" < router/wifi-wep-test.sh
 #
 # Environment overrides can precede 'sh' inside the remote command string:
-#   ssh root@your-router-ip "AUTH=open SSID=Test sh -s -- '12345'" < wifi-wep-test.sh
-#   ssh root@your-router-ip "AUTH=shared SLOT=2 sh -s -- '12345' '67890'" < wifi-wep-test.sh
+#   ssh root@your-router-ip "AUTH=open SSID=Test sh -s -- '12345'" < router/wifi-wep-test.sh
+#   ssh root@your-router-ip "AUTH=shared SLOT=2 sh -s -- '12345' '67890'" < router/wifi-wep-test.sh
 #
 # Keys:
 #   Provide 1 to 4 keys, mapped to slots 1–4 in order.
