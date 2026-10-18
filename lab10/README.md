@@ -42,6 +42,12 @@ The Intel AC8260 **cannot inject** (firmware-blocked) — confirm with
 `sudo aireplay-ng --test <iface>mon`. Use it as your passive listener; use an
 AR9271 (or confirmed MT7921) for the active attack.
 
+On 17 Oct 2026 the Intel card above was replaced by a Realtek **RTL8723BE**
+(`rtl8723be`). It is a single-interface driver: `airmon-ng` switches `wlp2s0` itself
+into monitor mode instead of creating a `wlp2s0mon` interface, so the script has to
+put it back in managed mode on exit. Injection has passed once and failed in later
+tests. The cause is not known yet.
+
 ---
 
 ## How the scripts work
@@ -102,7 +108,7 @@ The script cleans up on exit. If a run was killed and WiFi stays dark, follow
 the recovery steps in [COMMANDS.md](COMMANDS.md#8-wifi-disappeared).
 
 > `airmon-ng check kill` only **stops** NetworkManager and wpa_supplicant for
-> the capture, so it's reversible. Always stop monitor mode **before**
+> the capture, so it's reversible. Put the card back in managed mode **before**
 > restarting NetworkManager, or NM won't re-adopt the interface.
 
 ---
@@ -115,6 +121,7 @@ the recovery steps in [COMMANDS.md](COMMANDS.md#8-wifi-disappeared).
 | Script says injection failed and went passive | Expected on the AC8260. Use an AR9271 with `-m active`. |
 | Fake-auth keeps failing | Set the GL AP to **Open** WEP (not Shared) for first practice; Shared-key needs a PRGA xorfile. |
 | `#Data` not climbing in active mode | You're probably not injecting — check the card, antenna, and that you're close to the AP. |
+| Only `lo` after the script exits | The card stayed in monitor mode. The script restores it and prints a warning if it can't; otherwise follow COMMANDS.md §8. |
 | No `wlan0` | Fedora names it `wlp…`; run `iw dev`. |
 | Router AP not broadcasting after `wifi-wep-test.sh` | Read the hostapd log on the router (COMMANDS.md §7). The firmware may have been built without WEP. |
 

@@ -113,8 +113,20 @@ ssh root@your-router-ip "cp /root/wireless.<timestamp>.bak /etc/config/wireless 
 ## 8. WiFi disappeared?
 
 ```bash
+# Still in monitor mode? "type monitor" means yes
+iw dev wlp2s0 info | grep type
+
+# Single-interface drivers (e.g. the RTL8723BE) keep the managed name in monitor mode.
+# The mode only changes while the link is down, and NetworkManager only adopts a card
+# that is managed when it starts, so restart it last.
+sudo ip link set wlp2s0 down
+sudo iw dev wlp2s0 set type managed
+sudo ip link set wlp2s0 up
+sudo systemctl restart NetworkManager
+
+# If the card has a separate wlp2s0mon interface instead:
 sudo airmon-ng stop wlp2s0mon           # return the card to managed mode FIRST
-sudo systemctl start NetworkManager     # then restart networking
+sudo systemctl restart NetworkManager   # then restart networking
 ```
 
 If it's still dark, see the troubleshooting table in [README.md](README.md#troubleshooting).
