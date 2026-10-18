@@ -8,8 +8,8 @@
 # NO dictionary is used, which is the whole point of the lab.
 #
 #   active  mode: monitor -> injection test against the target -> fake-auth -> ARP
-#                 replay. Needs a card that injects reliably against the target
-#                 (e.g. Atheros AR9271). This is what recovers the key fast.
+#                 replay. Needs a card that injects reliably against the target.
+#                 This is what recovers the key fast.
 #   passive mode: monitor + capture only. Works on any card that can monitor
 #                 (e.g. the Intel AC8260). Good for practice and for the analysis
 #                 half of the writeup.
@@ -90,7 +90,7 @@ if [[ "$MODE" == "active" ]]; then
   else
     echo "[!] Injection test did NOT pass: $BSSID did not answer on $IFACE."
     echo "    Replies per AP are in ${OUT}-injection.txt. Falling back to PASSIVE capture."
-    echo "    An AR9271 USB adapter is the reliable injector for the active attack."
+    echo "    Active mode needs a card that injects against this AP."
     MODE="passive"
   fi
 fi

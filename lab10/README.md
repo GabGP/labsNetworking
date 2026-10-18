@@ -35,14 +35,13 @@ The whole game is therefore **IVs per second**:
 | Card | Monitor mode | Injection | Role in this lab |
 |------|:---:|:---:|---|
 | Intel **AC8260** (`iwlwifi`, built-in) | ✅ | ⚠️ partial | Passive capture and scanning. Injected for some APs only (see below) |
-| **Atheros AR9271** USB (e.g. Alfa AWUS036NHA) | ✅ | ✅ | **The active attack / key recovery** |
-| MediaTek **MT7921AU** (many "AX1800" USB) | ✅ | ✅ (modern kernel) | Viable alternative injector |
 
 The Intel AC8260 injected only part of the time on 18 Oct 2026. At 06:47 on channel 1
 no AP answered. At 07:26 on channel 1, one nearby AP answered 30/30, a second 28/30,
 and a third did not answer. Test the target itself with
 `sudo ./injection-test.sh -i <iface> -c <channel> -b <AP_BSSID>`, and repeat it before
-relying on a card. Use an AR9271 (or a confirmed MT7921) for the active attack.
+relying on a card. Adapters such as an Atheros AR9271 USB or a MediaTek MT7921AU are
+often suggested for active mode. Neither has been tested in this lab.
 
 On 17 Oct 2026 the Intel card above was replaced by a Realtek **RTL8723BE**
 (`rtl8723be`). It is a single-interface driver: `airmon-ng` switches `wlp2s0` itself
@@ -150,7 +149,7 @@ The scripts clean up on exit. If a run was killed and WiFi stays dark, run
 | Symptom | Fix |
 |---|---|
 | `aireplay-ng --test` → "no answer / 0 APs" | Lock the card to the AP's channel first. `sudo ./injection-test.sh -i wlp2s0 -c N -b <AP_BSSID>` does that and prints the replies per AP. The AC8260 may not answer on some runs (see Hardware). |
-| Script says injection failed and went passive | Expected on the AC8260. Use an AR9271 with `-m active`. |
+| Script says injection failed and went passive | Expected when the card can't inject against the target. The AC8260 does this some of the time; passive capture still works. |
 | Fake-auth keeps failing | Set the GL AP to **Open** WEP (not Shared) for first practice; Shared-key needs a PRGA xorfile. |
 | `#Data` not climbing in active mode | You're probably not injecting — check the card, antenna, and that you're close to the AP. |
 | Only `lo` after the script exits | The card stayed in monitor mode. Run `sudo ./wifi-recover.sh -i wlp2s0`; COMMANDS.md §8 has the manual steps. |

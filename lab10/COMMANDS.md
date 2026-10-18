@@ -40,7 +40,7 @@ sudo ./airodump.sh -i wlp2s0 -B abg    # also hop 5 GHz channels (AC8260 only)
 # Passive: listen only (works on the Intel AC8260)
 sudo ./wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m passive -o practice
 
-# Active: fake-auth + ARP replay (needs an injecting card, e.g. AR9271)
+# Active: fake-auth + ARP replay (needs a card that injects against the AP)
 sudo ./wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
 ```
 
