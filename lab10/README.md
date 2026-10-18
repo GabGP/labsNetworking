@@ -47,8 +47,8 @@ relying on a card. Use an AR9271 (or a confirmed MT7921) for the active attack.
 On 17 Oct 2026 the Intel card above was replaced by a Realtek **RTL8723BE**
 (`rtl8723be`). It is a single-interface driver: `airmon-ng` switches `wlp2s0` itself
 into monitor mode instead of creating a `wlp2s0mon` interface, so the script has to
-put it back in managed mode on exit. Injection has passed once and failed in later
-tests. The cause is not known yet.
+put it back in managed mode on exit. Injection passed on channel 1 in several
+tests on 17–18 Oct and failed in others. The cause is not known yet.
 
 ---
 
