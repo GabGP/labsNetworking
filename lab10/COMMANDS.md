@@ -97,10 +97,10 @@ each 5 or 13 ASCII characters, or 10 or 26 hex digits.
 
 ```bash
 # Main AP with one key
-ssh root@your-router-ip "sh -s -- '12345'" < wifi-wep-test.sh
+ssh root@your-router-ip "sh -s -- '12345'" < router/wifi-wep-test.sh
 
 # Custom SSID, two keys, transmit with key slot 2
-ssh root@your-router-ip "SSID=Lab SLOT=2 sh -s -- '12345' '67890'" < wifi-wep-test.sh
+ssh root@your-router-ip "SSID=Lab SLOT=2 sh -s -- '12345' '67890'" < router/wifi-wep-test.sh
 
 # Check the AP is actually up
 ssh root@your-router-ip "logread | grep -i hostapd | tail"

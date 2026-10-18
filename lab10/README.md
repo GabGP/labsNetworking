@@ -53,7 +53,7 @@ tests on 17–18 Oct and failed in others. The cause is not known yet.
 
 ## How the scripts work
 
-The laptop scripts are in `scripts/`.
+The laptop scripts are in `scripts/`. The router script is in `router/`.
 
 ### `wep-crack.sh`
 
@@ -104,7 +104,7 @@ the injection test, the airodump start, and the recovery that runs on every exit
 Recovery handles both driver styles (a separate `<iface>mon` vif, or single-vif).
 A fix there applies to all four scripts.
 
-### `wifi-wep-test.sh`
+### `router/wifi-wep-test.sh`
 
 Runs **on the router**, not the laptop. It backs up `/etc/config/wireless`,
 puts the main AP on WEP with the keys you give it, and checks netifd and
