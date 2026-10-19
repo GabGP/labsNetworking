@@ -42,10 +42,10 @@ to find a network's channel with it.
 ```bash
 ./scripts/wep-crack.sh -h                       # full usage
 
-# Passive: listen only (works on the Intel AC8260)
+# Passive: listen only. IVs come from traffic on the network, so start a download on a client
 sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m passive -o practice
 
-# Active: fake-auth + ARP replay (needs a card that injects against the AP)
+# Active: fake-auth + ARP replay (needs a card that injects; on the 3168NGW the replay adds almost no IVs)
 sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
 ```
 
@@ -66,7 +66,7 @@ What the script does at each step, and why: see [README.md](README.md#how-the-sc
 ```bash
 ls -lh logs/                                             # .cap, .csv and .key files
 grep -i 11:22:33:44:55:66 logs/cap_gl-01.csv             # column 11 ("# IV") = IVs captured so far
-cat logs/cap_gl.key                                      # recovered key (once found)
+cat logs/cap_gl.key                                      # recovered key, as hex (the script also prints the ASCII form)
 ```
 
 ## 6. Do the same steps by hand
@@ -110,8 +110,8 @@ ssh root@your-router-ip "SSID=Lab SLOT=2 sh -s -- '12345' '67890'" < router/wifi
 # Check the AP is actually up
 ssh root@your-router-ip "logread | grep -i hostapd | tail"
 
-# The script doesn't change the channel. For practice, set the 2.4 GHz channel to 1 in the
-# router's wireless settings. Both cards injected on channel 1 in our tests.
+# The script doesn't change the channel. The lab router is on channel 6, where both cards
+# injected in our tests.
 ```
 
 Restore WPA2 afterwards with the backup the script made:
@@ -142,4 +142,22 @@ sudo airmon-ng stop wlp2s0mon           # return the card to managed mode FIRST
 sudo systemctl restart NetworkManager   # then restart networking
 ```
 
+The script prints "did not finish its last restart" when the Intel firmware needs a reboot.
+
 If it's still dark, see the troubleshooting table in [README.md](README.md#troubleshooting).
+
+## 9. Make traffic for the IVs (the download test)
+
+Passive capture gets IVs only from traffic on the network. The key recovery used a phone
+downloading a file from the laptop over the WEP network while the capture ran.
+
+```bash
+mkdir -p ~/wepfeed && cd ~/wepfeed && dd if=/dev/urandom of=big.bin bs=1M count=200
+# Open port 8000 to the LAN subnet only, then serve the file on the laptop's LAN address
+sudo firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.8.0/24" port port="8000" protocol="tcp" accept'
+python3 -m http.server 8000 --bind <laptop-LAN-address>     # Ctrl-C when the download is done
+sudo firewall-cmd --remove-rich-rule='rule family="ipv4" source address="192.168.8.0/24" port port="8000" protocol="tcp" accept'
+```
+
+On the phone, on the WEP network, open `http://<laptop-LAN-address>:8000/big.bin`. Keep the
+phone connected for the whole capture.

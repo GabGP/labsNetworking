@@ -23,10 +23,8 @@ thousands) and `aircrack-ng`'s **PTW attack** solves the key algebraically —
 
 The whole game is therefore **IVs per second**:
 
-- **Passive:** just listen. IVs trickle in only as fast as real clients talk. Slow.
-- **Active:** capture one ARP packet and replay it thousands of times. The AP
-  answers each replay with a fresh IV → IVs pour in → key in minutes.
-  **Active needs a WiFi card that supports packet injection.**
+- **Passive:** just listen. IVs come only from frames already on the air, so the rate follows the traffic on the network. A phone downloading a 200 MB file gave enough IVs for a key in minutes (19 Oct). With no traffic, passive capture is too slow.
+- **Active:** replays a captured ARP packet so the AP answers with fresh IVs. It needs a card that can inject, and the AP must accept the card as a client. On the Intel 3168NGW the AP dropped the card within seconds, and the replays added almost no IVs (TESTS.md, section 2.7).
 
 ---
 
@@ -35,14 +33,15 @@ The whole game is therefore **IVs per second**:
 | Card | Monitor mode | Injection | Role in this lab |
 |------|:---:|:---:|---|
 | Intel **AC8260** (`iwlwifi`, built-in) | ✅ | ⚠️ partial | Passive capture and scanning. Active on channel 1 since 10:22 on 18 Oct; failed for two hours before that (see below) |
+| Intel **3168NGW** (`iwlwifi`, 1x1, in the laptop from 18 Oct) | ✅ | ✅ on channels 1 and 6 | Passive capture recovered the WEP key on 19 Oct. Active replays: the AP drops the card within seconds, and the firmware stalls (TESTS.md, section 2.7). |
 
 On 18 Oct 2026 the Intel AC8260 failed in every test from the 08:30 reboot until 10:22,
 and the cause is not known. Since 10:22 it has injected on channel 1 in every test (15 runs).
-It injected on channel 6 at 08:18 and 19:41, and at 10:30 it heard no AP on channel 6.
+It injected on channel 6 at 08:18 and 19:41. The 10:30 channel 6 test found no AP because the lab router was off.
 Test the target itself with `sudo ./scripts/injection-test.sh -i <iface> -c <channel> -b <AP_BSSID>`,
 and repeat it before relying on a card. Adapters such as an Atheros AR9271 USB or a MediaTek
-MT7921AU are often suggested for active mode. Neither has been tested in this lab. A spare
-Intel 3160NGW is also untested.
+MT7921AU are often suggested for active mode. Neither has been tested in this lab. The spare
+Intel 3168NGW, the card in the laptop from 18 Oct, injected on channels 1 and 6 in 8 of 8 runs.
 
 On 17 Oct 2026 the Intel card above was replaced by a Realtek **RTL8723BE**
 (`rtl8723be`). It is a single-interface driver: `airmon-ng` switches `wlp2s0` itself
@@ -74,10 +73,8 @@ The laptop scripts are in `scripts/`. The router script is in `router/`.
    saves the output to `logs/<prefix>-injection.txt`. If the target does not
    answer, it switches to passive mode, so it never silently does nothing. If the
    target answers, it starts fake-auth and ARP replay.
-4. Every 15 s it prints the IV count from the CSV. Once there are at least 5000
-   IVs it runs `aircrack-ng`, then runs it again each time the count grows by
-   `-t` (default 20000).
-5. When the key is found, it writes `logs/<prefix>.key` and exits.
+4. Every 3 s it prints the IV count, the IV rate and, in active mode, the ARP replay counters. Once there are at least 5000 IVs it runs `aircrack-ng`, then runs it again each time the count grows by `-t` (default 20000). A try can take up to a minute, which pauses the progress lines, but the IV count keeps rising.
+5. When the key is found, it prints the key in ASCII and hex, writes `logs/<prefix>.key` (26 hex digits, as aircrack-ng writes it), and cleans up.
 
 Notes:
 
@@ -138,15 +135,20 @@ because `iwinfo` still reports the WEP settings after hostapd has refused them.
 
 ## What you'll see
 
-- `[#Data ~ N IVs]` printed every ~15s — this is your IV count climbing.
-- Once `#Data` is high enough the script runs `aircrack-ng`; on success:
+- A progress line every 3 s, for example `    04:12:15  IVs 16000 (+1987 IV/s)  ARP req 7, ACK 140, TX 1750`. The rate is per real second. In passive mode the replay columns are empty.
+- Once there are enough IVs the script runs `aircrack-ng`; on success:
 
 ```
 ============================================================
- KEY RECOVERED: <WEP-key-redacted>
- Saved to: cap_gl.key   Capture: cap_gl-01.cap
+ KEY RECOVERED
+ ASCII:    <13 characters>
+ Hex:      <13 pairs of hex, colon separated>
+ Saved to: logs/cap_gl.key
+ Capture:  logs/cap_gl-01.cap
 ============================================================
 ```
+
+The ASCII line appears only when every byte of the key is printable.
 
 The `.cap` file and recovered key are your **evidence for the GES report**.
 
@@ -157,6 +159,8 @@ The `.cap` file and recovered key are your **evidence for the GES report**.
 The scripts clean up on exit. If a run was killed and WiFi stays dark, run
 `sudo ./scripts/wifi-recover.sh -i wlp2s0`, or follow the steps in
 [COMMANDS.md](COMMANDS.md#8-wifi-disappeared).
+
+On the Intel card the cleanup waits 12 s before it removes the monitor interface, so the firmware can settle. A second Ctrl-C does not stop the restore. If the firmware did not finish its last restart, the script says so, and a reboot brings WiFi back.
 
 > `airmon-ng check kill` only **stops** NetworkManager and wpa_supplicant for
 > the capture, so it's reversible. Put the card back in managed mode **before**
@@ -178,6 +182,7 @@ The scripts clean up on exit. If a run was killed and WiFi stays dark, run
 | Target channel unknown | `sudo ./scripts/managed-scan.sh -i wlp2s0` lists each network's channel, BSSID and name. Hidden names show as `<hidden>`. |
 | Target is on channel 6 and the card is the Realtek | The Realtek receives only on the channel it started on. Use the AC8260 on that channel, or connect the card to a network on that channel before monitor mode starts (see Hardware). |
 | Hidden network, injection test shows 0/30 | Most hidden networks ignore probes that don't name them, so the test can't see them even when injection works. Get the name first; airodump shows it once a client connects. Untested in this lab. |
+| Few IVs a second | The network carries little traffic, and the replay adds almost none on the Intel 3168NGW. Start a large download from a device on the network. A phone downloading from the laptop worked (TESTS.md, section 2.7). |
 
 ---
 
