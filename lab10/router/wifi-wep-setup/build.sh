@@ -18,7 +18,7 @@ SDK_NAME=openwrt-sdk-22.03.4-ath79-nand_gcc-11.2.0_musl.Linux-x86_64
 SDK_URL=https://downloads.openwrt.org/releases/22.03.4/targets/ath79/nand/$SDK_NAME.tar.xz
 # From https://downloads.openwrt.org/releases/22.03.4/targets/ath79/nand/sha256sums
 SDK_SHA256=25eb5618f05facf173f8890df2d84b95f0e0e4ca5ed8dbde0b4af3c953defe2e
-# What GL.iNet 4.3.x ships; the router's other packages expect exactly this version.
+# What GL.iNet 4.3.x ships. The check below compares only the snapshot part (before the last dash).
 EXPECTED_VERSION=2022-01-16-cff80b4f-18.2
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
@@ -81,7 +81,9 @@ tar -xzf "$EXTRACT_DIR/control.tar.gz" -C "$EXTRACT_DIR"
 tar -xzf "$EXTRACT_DIR/data.tar.gz" -C "$EXTRACT_DIR"
 
 version=$(sed -n 's/^Version: //p' "$EXTRACT_DIR/control")
-[ "$version" = "$EXPECTED_VERSION" ] || die "built $version, but GL.iNet 4.3.x ships $EXPECTED_VERSION"
+# Only the snapshot (date and commit) is compared. The release after the last dash is packaging:
+# GL.iNet's firmware says 18.2 for the snapshot that the SDK builds as 1.2.
+[ "${version%-*}" = "${EXPECTED_VERSION%-*}" ] || die "built $version, but GL.iNet 4.3.x ships $EXPECTED_VERSION"
 # 'wep_default_key' is a hostapd config item that only exists when WEP is compiled in.
 strings "$EXTRACT_DIR/usr/sbin/wpad" | grep -qx wep_default_key || die "the built wpad has no WEP support"
 
