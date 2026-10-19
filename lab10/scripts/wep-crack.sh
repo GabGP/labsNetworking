@@ -127,6 +127,27 @@ ap_ivs() {
   n=$(awk -F, -v b="${BSSID^^}" 'toupper($1) ~ b {gsub(/ /,"",$11); print $11; exit}' "${OUT}-01.csv" 2>/dev/null)
   echo "${n:-0}"
 }
+
+# Prints the recovered key as ASCII (when every byte is printable) and as colon-separated hex.
+# aircrack-ng writes the key file as hex.
+show_key() {
+  local hex sep ascii="" byte i
+  hex=$(tr -d ': \r\n' < "$KEYFILE" | tr 'a-f' 'A-F')
+  for ((i = 0; i < ${#hex}; i += 2)); do
+    printf -v byte "\\x${hex:i:2}"
+    ascii+=$byte
+  done
+  sep=$(sed 's/../&:/g; s/:$//' <<< "$hex")
+  echo "============================================================"
+  echo " KEY RECOVERED"
+  if [[ "$ascii" =~ ^[[:print:]]+$ ]]; then
+    printf ' %-10s%s\n' "ASCII:" "$ascii"
+  fi
+  printf ' %-10s%s\n' "Hex:" "$sep"
+  printf ' %-10s%s\n' "Saved to:" "$KEYFILE"
+  printf ' %-10s%s\n' "Capture:" "${OUT}-01.cap"
+  echo "============================================================"
+}
 last_iv=0                # #Data at the last aircrack attempt (0 = none yet)
 prev_iv=$(ap_ivs)        # #Data at the last progress line, for the rate
 prev_time=$(date +%s.%N) # when that line was printed
@@ -157,10 +178,7 @@ while true; do
     # timed-out try is retried at the next IV_TARGET step.
     if timeout -k 5 60 aircrack-ng -q -n 128 -b "$BSSID" -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 && [[ -s "$KEYFILE" ]]; then
       echo
-      echo "============================================================"
-      echo " KEY RECOVERED: $(cat "$KEYFILE")"
-      echo " Saved to: $KEYFILE   Capture: ${OUT}-01.cap"
-      echo "============================================================"
+      show_key
       exit 0
     fi
   fi
