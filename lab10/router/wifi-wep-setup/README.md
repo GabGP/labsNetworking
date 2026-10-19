@@ -40,7 +40,7 @@ Fedora 44 has no `distutils`, so `build.sh` stops at its check here. Two ways:
 
 **GitHub Actions (no setup).** [`build-wpad-wep.yml`](../../../.github/workflows/build-wpad-wep.yml)
 runs on every push to `main` that changes `build.sh` or the workflow, or by hand: *Actions →
-build-wpad-wep → Run workflow*. It takes about 15–30 minutes. The result is the release
+build-wpad-wep → Run workflow*. It takes about 5 minutes. The result is the release
 `wpad-wep-22.03.4` of this repository, which downloads without a GitHub login. On this laptop:
 
 ```bash
