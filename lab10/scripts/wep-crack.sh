@@ -71,7 +71,8 @@ mkdir -p "$LOGDIR"
 : > "$AIRMON_LOG"
 OUT="${LOGDIR}/${PREFIX}"
 KEYFILE="${OUT}.key"
-rm -f "${OUT}"-*.cap "${OUT}"-*.csv 2>/dev/null
+# An old key file with this prefix would look like a new result, so it goes with the old capture.
+rm -f "${OUT}"-*.cap "${OUT}"-*.csv "$KEYFILE" 2>/dev/null
 
 # ---- start capture --------------------------------------------------------
 wifi_guard "$IFACE"
@@ -127,7 +128,11 @@ while true; do
   # first try once we have a reasonable pile, then again each time #Data grows by IV_TARGET
   if (( ivs >= MIN_IVS && (last_iv == 0 || ivs - last_iv >= IV_TARGET) )); then
     last_iv=$ivs
-    if aircrack-ng -q -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 && [[ -s "$KEYFILE" ]]; then
+    echo "    [*] trying the key at ${ivs} IVs (up to 60 s)..."
+    # -n 128: a 13-character (104-bit) WEP key. -b: the capture can hold other networks.
+    # timeout: a failed try can wait or brute-force for minutes and would freeze this loop; a
+    # timed-out try is retried at the next IV_TARGET step.
+    if timeout -k 5 60 aircrack-ng -q -n 128 -b "$BSSID" -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 && [[ -s "$KEYFILE" ]]; then
       echo
       echo "============================================================"
       echo " KEY RECOVERED: $(cat "$KEYFILE")"
