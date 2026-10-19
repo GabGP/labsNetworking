@@ -84,8 +84,10 @@ version=$(sed -n 's/^Version: //p' "$EXTRACT_DIR/control")
 # Only the snapshot (date and commit) is compared. The release after the last dash is packaging:
 # GL.iNet's firmware says 18.2 for the snapshot that the SDK builds as 1.2.
 [ "${version%-*}" = "${EXPECTED_VERSION%-*}" ] || die "built $version, but GL.iNet 4.3.x ships $EXPECTED_VERSION"
-# 'wep_default_key' is a hostapd config item that only exists when WEP is compiled in.
-strings "$EXTRACT_DIR/usr/sbin/wpad" | grep -qx wep_default_key || die "the built wpad has no WEP support"
+# 'wep_default_key' is a hostapd config item that only exists when WEP is compiled in. strings
+# writes to a file, not a pipe: with pipefail, grep -q can exit early and make strings fail.
+strings "$EXTRACT_DIR/usr/sbin/wpad" > "$EXTRACT_DIR/wpad.strings"
+grep -qx wep_default_key "$EXTRACT_DIR/wpad.strings" || die "the built wpad has no WEP support"
 
 rm -f "$OUT_DIR"/wpad-openssl_*.ipk "$OUT_DIR/wpad" "$OUT_DIR/SHA256SUMS"
 cp "$IPK" "$OUT_DIR/"
