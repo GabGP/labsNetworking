@@ -1,0 +1,2 @@
+# The Super Mini has no USB-UART bridge: the log goes out on the native USB port.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
