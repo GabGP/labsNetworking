@@ -2,7 +2,7 @@
 
 Working record for the WEP key-recovery lab (Laboratorio #10, "Captura el Router"). The submission asks for three parts: the commands used for the recovery, brief technical evidence of the tests, and the adversarial or physical actions. This file follows those three parts and records the decisions made along the way. Add a row for each run with its log file name, so every result can be checked against `logs/`.
 
-**Status, 19 Oct 2026: WEP key recovered from the GL router.** The run is in section 2.7, and its capture is `logs/cap_nophone-01.cap`. Most of the IVs came from a phone downloading a file from the laptop over the WEP network. The replay added almost none: the access point sent only 24 broadcast frames in the whole run. The replay also stalled the Intel card's firmware 11 times in five minutes. A second run on 19 Oct got 99% of its IVs from wired broadcasts, with one client present for part of it (section 2.9).
+**Status, 19 Oct 2026: WEP key recovered from the GL router.** The run is in section 2.7, and its capture is `logs/cap_nophone-01.cap`. Most of the IVs came from a phone downloading a file from the laptop over the WEP network. The replay added almost none: the access point sent only 24 broadcast frames in the whole run. The replay also stalled the Intel card's firmware 11 times in five minutes. A second run on 19 Oct got 99% of its IVs from wired broadcasts, with one client present for part of it (section 2.9). With no station associated, the same broadcasts gave no IVs (section 2.10).
 
 > **Authorized targets only:** the GL router you own, and the class router only during its evaluation window. `injection-test.sh` probes every AP on its channel. Keep tests on channel 6, where only the GL router was heard at 21:18. Channel 1 has other networks in range.
 
@@ -52,7 +52,7 @@ sudo firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.8.
 python3 -m http.server 8000 --bind <laptop-LAN-address>
 ```
 
-Run on 19 Oct with one client present (section 2.9). The repeat with no client is open (section 5, item 7).
+Run on 19 Oct with one client present (section 2.9). The repeat with no client gave no IVs (section 2.10).
 
 ## 2. Test evidence
 
@@ -179,6 +179,18 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 - In 05:31, with no client data frames, the capture logged 17,816 broadcast IVs, about 297 a second, close to the send rate. The minutes with the client were lower, 4,300 to 11,600. That may be the access point holding broadcasts for a client in power-save mode. This is not tested.
 - The laptop's Wi-Fi dropped when the capture started (05:26:44) and came back when the restore finished (05:32:17).
 
+### 2.10 No station, broadcasts sent (19 Oct, passive)
+
+- **Run:** `logs/2026-10-19_070743_nostation/`, channel 6, with the phone off. The router showed no associated station at 07:05:28. The laptop sent 90,000 UDP broadcasts to 192.168.8.255 in 300 seconds, from about 07:05 to 07:10 (300 a second). The capture started at 07:07:43, about two minutes into the broadcasts, so it covers roughly the last three minutes. The sender reported no errors. The router's counters were not read in this run.
+- **Result:** no WEP data frame to or from the AP in the whole capture (`wep_frames.py` total 0). No client was seen. The CSV shows `#IV` 0, and the capture holds only 3,029 beacons. No key.
+- **Control:** with a station associated, the same sender gave 47,041 AP broadcasts and 17,816 broadcast IVs in one minute (2.9).
+
+### 2.11 Time for each aircrack-ng try (19 Oct)
+
+- **Successes took under a second.** Copies of the broadcast capture (2.9) gave the key in 0.3 s at 47,535 frames, with the default options and with `-1`, `-x0` and `-f 1`. At 42,706 frames the default took 0.6 s, and at 37,877 frames 0.8 s.
+- **Failures never ended on their own.** A copy cut at 40,293 frames found no key in 10 s or in 60 s (default options). Partial copies of the 19 Oct capture, kept outside the repo, at about 5,400, 19,500 and 38,700 IVs each ran the full 60 s with the default options. With `-x0` or `-f 1`, the 19,500 and 38,700 IV copies ran past 30 s. With `-1` they ran past 351 s, and only KILL stopped them, because TERM did not.
+- None of the options made a failed try end sooner, so the script keeps the defaults and caps each try (decision 10).
+
 ## 3. Decisions
 
 1. **Keep the 3168NGW as the lab card, for now.** It passed all eight runs. The AC8260 failed from 08:47 to 09:59 with no cause found. Go back to the AC8260 only if the 3168NGW shows either failure signature in 2.4.
@@ -189,8 +201,9 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 6. **Build wpad in GitHub Actions; run it from RAM once tested.** The SDK needs Ubuntu 22.04 with distutils, which this laptop lacks. The workflow builds from `lab10/router/wifi-wep-setup/` on each push to `main` that changes it. The router side, `try-on-router.sh`, mounts the build over `/usr/sbin/wpad` and writes nothing to flash. It is not tested yet, so it is held back from `main`.
 
 7. **Crack in passive mode while the network carries traffic.** On the 3168NGW the replay added almost no IVs (2.7), and it stalled the firmware 11 times in five minutes. The traffic of a client sets the IV rate.
-8. **Traffic for IVs: wired broadcasts first, no client needed.** An ESP32-C3 as a WEP client is the fallback if broadcasts do not supply IVs (section 5, item 8). Both stay on our own router.
+8. **Traffic for IVs: wired broadcasts, with a station associated.** With no station they gave no IVs (2.10). Whether a station that never had the key can serve is untested (section 5, item 7). An ESP32-C3 as a WEP client is the fallback (section 5, item 8). Both stay on our own router.
 9. **One folder per run in `logs/`.** From 19 Oct, each run writes into `logs/<time>_<prefix>/`, so its capture, key and output stay together and an earlier run is never overwritten. The runs before that are still flat in `logs/`, and their paths in this file are unchanged.
+10. **Each aircrack-ng try stops at 10 s.** A try that finds the key takes under a second (2.11), so 10 s is more than ten times the slowest success measured (0.8 s). A failed try runs until the cap, so the cap is its wait. The old 60 s was not based on a measurement or a source. A key that a try misses is tried again 10,000 IVs later.
 
 ## 4. Adversarial and physical actions
 
@@ -209,6 +222,6 @@ The guide asks for these in the submission. So far:
 4. **`wifi_set_channel`.** It checks only the exit status, so the 08:47 "channel -1" went unnoticed. Reading the channel back after `iw set channel` would catch it.
 5. **Channel 36 at 10:30.** Three APs found on 5 GHz, no reply. An earlier note said 36 and 149 are not allowed in the GT domain. The 3168NGW showed both allowed at 21:33, so that note was wrong, and regulation does not explain this failure.
 6. **Docs.** Fixed on 19 Oct: `README.md` and `COMMANDS.md` name the 3168NGW, say the 10:30 test found no AP because the router was off, and give channel 6 for the lab router.
-7. **IVs with no client (sections 2.8 and 2.9).** On 19 Oct, the broadcasts gave 99% of the IVs in a five-minute capture, with one client present for three minutes. Still open: a run with the phone's Wi-Fi off and no client in the station list, to confirm that broadcasts alone are enough for the key.
+7. **IVs with no station (sections 2.8 to 2.10).** On 19 Oct, the broadcasts gave 99% of the IVs in a five-minute capture, with one client present for three minutes. With no station associated, the same broadcasts gave no IVs (2.10). Still open: whether a station that never had the key can stay associated long enough to receive them. In 2.7 the access point did not keep the replay card as a client.
 8. **ESP32-C3 as WEP clients.** Check first that one board joins the Test network with its auth threshold set to WEP. The ESP-IDF docs describe this, but the v4.3 guide calls WEP deprecated, and nothing has been tested on the board: [ESP-IDF Wi-Fi API, v5.4.4](https://docs.espressif.com/projects/esp-idf/en/v5.4.4/esp32c3/api-reference/network/esp_wifi.html) and [Wi-Fi driver guide, v4.3](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32c3/api-guides/wifi.html).
 9. **Restore WPA2 on the GL router** after the lab, with the steps in [router/wifi-wep-setup/README.md](router/wifi-wep-setup/README.md) (section 4).
