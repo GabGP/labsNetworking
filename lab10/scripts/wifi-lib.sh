@@ -73,10 +73,12 @@ wifi_guard() {
 # Runs on every exit. The background processes are stopped and waited for first, so their
 # last output comes before ours. Then the terminal settings airodump-ng changed are put back.
 wifi_cleanup() {
+  # A second Ctrl-C must not cut the restore short, or the card stays in monitor mode.
+  trap '' INT TERM
   stop_tracked
   if [[ -n "$TTY_STATE" ]]; then stty "$TTY_STATE" 2>/dev/null; fi
   if [[ -t 1 ]]; then tput cnorm 2>/dev/null; fi
-  echo; echo "[*] Cleaning up..."
+  echo; echo "[*] Cleaning up (Ctrl-C will not stop this)..."
   wifi_restore "$IFACE" "$MON"
 }
 
@@ -172,6 +174,10 @@ ap_summary() {
 wifi_restore() {
   local iface=$1 mon=${2:-} changed=0
   if [[ -n "$mon" && "$mon" != "$iface" && -n "$(iface_type "$mon")" ]]; then
+    # Removing the monitor fails if the Intel firmware is stalled, and in the 03:32 run that
+    # left the card dead until a reboot. The driver resets a stalled queue after 10 s, so wait.
+    echo "[*] Waiting 12 s for the card's firmware to settle..."
+    sleep 12
     echo "[*] Stopping monitor interface $mon..."
     airmon-ng stop "$mon" >>"$AIRMON_LOG" 2>&1
     changed=1
@@ -189,6 +195,13 @@ wifi_restore() {
     systemctl restart NetworkManager 2>/dev/null
   fi
   wifi_verify "$iface"
+}
+
+# True when the newest Intel firmware restart in the kernel log never completed. Only a reboot
+# recovers the card then.
+iwl_restart_unfinished() {
+  journalctl -k --since "-3 min" --no-pager 2>/dev/null |
+    grep -E 'Hardware restart was requested|restart completed' | tail -n 1 | grep -q 'was requested'
 }
 
 # Check that the card is managed and NetworkManager lists it. A card that is up but not
@@ -218,5 +231,8 @@ wifi_verify() {
     echo "[*] $iface is managed and connected."
   else
     echo "[!] $iface is managed but not connected yet (${state:-no state}). Check: nmcli device status" >&2
+    if iwl_restart_unfinished; then
+      echo "[!] The Intel firmware did not finish its last restart. Reboot to recover the card." >&2
+    fi
   fi
 }
