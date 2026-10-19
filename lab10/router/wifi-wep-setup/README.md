@@ -31,7 +31,7 @@ Wi-Fi driver (ath9k) supports WEP, and so does OpenWrt's config script, which wr
 `wep_key0` lines.
 
 [`build.sh`](build.sh) builds the same package from OpenWrt's SDK for that release, with WEP on.
-It stops when the built version is not exactly GL's or when WEP did not get compiled in.
+It stops when the built snapshot is not GL's (`2022-01-16-cff80b4f`) or when WEP did not get compiled in. The release number differs: the SDK gives `1.2`, GL's firmware says `18.2`.
 
 ## <a id="2-build"></a>2. Build
 
