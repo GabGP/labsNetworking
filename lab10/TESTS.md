@@ -2,7 +2,7 @@
 
 Working record for the WEP key-recovery lab (Laboratorio #10, "Captura el Router"). The submission asks for three parts: the commands used for the recovery, brief technical evidence of the tests, and the adversarial or physical actions. This file follows those three parts and records the decisions made along the way. Add a row for each run with its log file name, so every result can be checked against `logs/`.
 
-**Status, 19 Oct 2026: WEP key recovered from the GL router.** The run is in section 2.7, and its capture is `logs/cap_nophone-01.cap`. Most of the IVs came from a phone downloading a file from the laptop over the WEP network. The replay added almost none: the access point sent only 24 broadcast frames in the whole run. The replay also stalled the Intel card's firmware 11 times in five minutes. A second run on 19 Oct got 99% of its IVs from wired broadcasts, with one client present for part of it (section 2.9). With no station associated, the same broadcasts gave no IVs (section 2.10).
+**Status, 19 Oct 2026: WEP key recovered from the GL router.** The run is in section 2.7, and its capture is `logs/cap_nophone-01.cap`. Most of the IVs came from a phone downloading a file from the laptop over the WEP network. The replay added almost none: the access point sent only 24 broadcast frames in the whole run. The replay also stalled the Intel card's firmware 11 times in five minutes. A second run on 19 Oct got 99% of its IVs from wired broadcasts, with one client present for part of it (section 2.9). With no station associated, the same broadcasts gave no IVs (section 2.10). Corrections from 19 Oct: in the 06:32 run the 82,000 frames went to the phone's download, not to the replay card, which got no data frames (section 2.12). The 08:13 and 08:21 passive runs cracked from that same download (section 2.13).
 
 > **Authorized targets only:** the GL router you own, and the class router only during its evaluation window. `injection-test.sh` probes every AP on its channel. Keep tests on channel 6, where only the GL router was heard at 21:18. Channel 1 has other networks in range.
 
@@ -191,6 +191,32 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 - **Failures never ended on their own.** A copy cut at 40,293 frames found no key in 10 s or in 60 s (default options). Partial copies of the 19 Oct capture, kept outside the repo, at about 5,400, 19,500 and 38,700 IVs each ran the full 60 s with the default options. With `-x0` or `-f 1`, the 19,500 and 38,700 IV copies ran past 30 s. With `-1` they ran past 351 s, and only KILL stopped them, because TERM did not.
 - None of the options made a failed try end sooner, so the script keeps the defaults and caps each try (decision 10).
 
+### 2.12 The 06:32 run: who sent what (19 Oct, active)
+
+- **Run:** `logs/2026-10-19_063243_iso_off/`, the second isolation attempt, channel 6. Fake auth and ARP replay ran from our card, and the phone was downloading. The user confirmed the phone was on the network in these runs.
+- **<phone MAC>** has a randomized MAC (the locally administered bit is set), and the router gave it a DHCP lease (<phone IP>). It is the phone. The AP sent it 82,132 data frames, 99.9% of them 1,542 bytes. It sent back 45,540 frames, 96% of them 94 bytes. That is a TCP download with ACKs.
+- **<card MAC>** is the card's hardware MAC. Its 9,035 frames to the AP are 68 to 70 bytes, the size of the ARP replays. The AP sent it no data frames at all.
+- **Association without the key worked.** The fake-auth log shows one association and no deauthentication for the run.
+- **Broadcasts:** 33 went to all stations, each 68 bytes (ARP size). The phone was associated, so these don't show whether the card alone gets broadcasts.
+- **Correction:** an earlier reading said the AP answered the card with 82,000 frames and that the key came from that. Those frames went to the phone, and the replays got no answer in this run.
+- **The 08:10 active run** (`logs/2026-10-19_080955_cap/`) passed the injection test (30 of 30 probes). The card was disassociated twice after fake auth, and about 10 s after it started the monitor interface went down ("Network is down"). The run ended with 509 frames and no key.
+
+### 2.13 Passive runs, 08:13 and 08:21 (19 Oct)
+
+- **`logs/2026-10-19_081325_cap/`:** 55,342 WEP frames. The key came out in about 40 seconds (08:13:25 to 08:14:05). 99.9% of the AP's frames went to the phone's MAC and were 1,542 bytes.
+- **`logs/2026-10-19_082150_cap/`:** 144,518 WEP frames. The key came out at 08:37:27, after 16 minutes. The download paused from 08:25 to 08:34 (about 700 frames in those ten minutes) and resumed at 08:35.
+- **The 10 s cap was not the cause.** Cut copies of this capture at 40,000 to 130,000 frames gave no key in 60 seconds. The full 144,518 frames gave the key in 2.9 seconds.
+- **Retransmissions were not the cause.** Repeated IVs were all retries, 0.7% to 2.3% of the frames in both runs.
+- **PTW is probabilistic.** The 08:13 capture cracked at 55,000 frames, and the 08:21 capture did not crack at 130,000. The 08:21 wait was the download pausing, and the last frames it needed came after it resumed.
+
+### 2.14 Keyless card with the flood, phone off (19 Oct, passive)
+
+- **Run:** `logs/2026-10-19_092546_keyless/`, channel 6, passive capture. The flood sent 300 broadcasts a second to 192.168.8.255 from 09:25:27, and the router was logged every 30 seconds. The run was stopped after about two minutes.
+- **Result:** no WEP frames, so no IVs. The router's association list showed "No station connected" at every sample from 09:25:27 to 09:29:31.
+- **The AP never kept the card.** The fake-auth output shows "Authentication successful" and "Association successful" every 10 seconds from 09:26:09 to 09:27:19, and each request got an [ACK] from the AP. So the card received the AP's replies. The router's log shows the AP recorded those replies as "not acknowledged" about every 10 seconds, and then "deauthenticated due to inactivity". So the AP never got an acknowledgement for its replies. The router's clock reads 2023, so its timestamps show order only. The capture saw the card's MAC (<card MAC>, 20 packets, 09:26:09 to 09:27:19).
+- **The flood reached the AP's driver.** The router's LAN counter rose by about 301 frames a second, and its wireless transmit counter rose by about 301 a second. That counter counts frames handed to the driver, not frames on the air. The capture shows no frames on the air, which matches the no-station result (2.10).
+- **Not a test of a keyless station.** The question is whether the AP sends broadcasts to a keyless card that stays associated. This card never stayed associated, so this run doesn't answer it.
+
 ## 3. Decisions
 
 1. **Keep the 3168NGW as the lab card, for now.** It passed all eight runs. The AC8260 failed from 08:47 to 09:59 with no cause found. Go back to the AC8260 only if the 3168NGW shows either failure signature in 2.4.
@@ -200,10 +226,10 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 5. **L0s stays on.** Turning it off stopped the logged errors but showed no Wi-Fi gain.
 6. **Build wpad in GitHub Actions; run it from RAM once tested.** The SDK needs Ubuntu 22.04 with distutils, which this laptop lacks. The workflow builds from `lab10/router/wifi-wep-setup/` on each push to `main` that changes it. The router side, `try-on-router.sh`, mounts the build over `/usr/sbin/wpad` and writes nothing to flash. It is not tested yet, so it is held back from `main`.
 
-7. **Crack in passive mode while the network carries traffic.** On the 3168NGW the replay added almost no IVs (2.7), and it stalled the firmware 11 times in five minutes. The traffic of a client sets the IV rate.
-8. **Traffic for IVs: wired broadcasts, with a station associated.** With no station they gave no IVs (2.10). Whether a station that never had the key can serve is untested (section 5, item 7). An ESP32-C3 as a WEP client is the fallback (section 5, item 8). Both stay on our own router.
+7. **Crack in passive mode while the network carries traffic.** On the 3168NGW the replay added almost no IVs (2.7), and it stalled the firmware 11 times in five minutes. The traffic of a client sets the IV rate. The 08:13 and 08:21 runs cracked from a download alone (section 2.13).
+8. **Traffic for IVs: wired broadcasts, with a station associated.** With no station they gave no IVs (2.10). Whether a station that never had the key can serve is the open test (section 5, item 7). The ESP32-C3 cannot send encrypted frames, so it cannot inject (section 5, item 8). Both stay on our own router.
 9. **One folder per run in `logs/`.** From 19 Oct, each run writes into `logs/<time>_<prefix>/`, so its capture, key and output stay together and an earlier run is never overwritten. The runs before that are still flat in `logs/`, and their paths in this file are unchanged.
-10. **Each aircrack-ng try stops at 10 s.** A try that finds the key takes under a second (2.11), so 10 s is more than ten times the slowest success measured (0.8 s). A failed try runs until the cap, so the cap is its wait. The old 60 s was not based on a measurement or a source. A key that a try misses is tried again 10,000 IVs later.
+10. **Each aircrack-ng try stops at 10 s.** A try that finds the key takes under a second (2.11), so 10 s is more than three times the slowest success measured (2.9 s, section 2.13). A failed try runs until the cap, so the cap is its wait. The old 60 s was not based on a measurement or a source. A key that a try misses is tried again 10,000 IVs later.
 
 ## 4. Adversarial and physical actions
 
@@ -222,6 +248,8 @@ The guide asks for these in the submission. So far:
 4. **`wifi_set_channel`.** It checks only the exit status, so the 08:47 "channel -1" went unnoticed. Reading the channel back after `iw set channel` would catch it.
 5. **Channel 36 at 10:30.** Three APs found on 5 GHz, no reply. An earlier note said 36 and 149 are not allowed in the GT domain. The 3168NGW showed both allowed at 21:33, so that note was wrong, and regulation does not explain this failure.
 6. **Docs.** Fixed on 19 Oct: `README.md` and `COMMANDS.md` name the 3168NGW, say the 10:30 test found no AP because the router was off, and give channel 6 for the lab router.
-7. **IVs with no station (sections 2.8 to 2.10).** On 19 Oct, the broadcasts gave 99% of the IVs in a five-minute capture, with one client present for three minutes. With no station associated, the same broadcasts gave no IVs (2.10). Still open: whether a station that never had the key can stay associated long enough to receive them. In 2.7 the access point did not keep the replay card as a client.
-8. **ESP32-C3 as WEP clients.** Check first that one board joins the Test network with its auth threshold set to WEP. The ESP-IDF docs describe this, but the v4.3 guide calls WEP deprecated, and nothing has been tested on the board: [ESP-IDF Wi-Fi API, v5.4.4](https://docs.espressif.com/projects/esp-idf/en/v5.4.4/esp32c3/api-reference/network/esp_wifi.html) and [Wi-Fi driver guide, v4.3](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32c3/api-guides/wifi.html).
+7. **Keyless station and broadcasts (sections 2.8 to 2.14).** On 19 Oct, the broadcasts gave 99% of the IVs in a five-minute capture, with one client present for three minutes. With no station associated, the same broadcasts gave no IVs (2.10). In the 06:32 run the replay card stayed associated without the key but received no data frames (2.12). At 09:25 the AP never kept the card (2.14). Still open: whether the AP sends broadcasts to a keyless card that stays associated.
+8. **ESP32-C3 as a keyless WEP station.** Espressif's raw-frame call ["cannot be used for sending encrypted or QoS frames"](https://docs.espressif.com/projects/esp-idf/en/v6.0/esp32c3/api-guides/wifi-driver/wifi-vendor-features.html), so the board cannot send WEP replays. It could still be the station in item 7. Nothing has been tested on the board: [ESP-IDF Wi-Fi API, v5.4.4](https://docs.espressif.com/projects/esp-idf/en/v5.4.4/esp32c3/api-reference/network/esp_wifi.html) and [Wi-Fi driver guide, v4.3](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32c3/api-guides/wifi.html).
 9. **Restore WPA2 on the GL router** after the lab, with the steps in [router/wifi-wep-setup/README.md](router/wifi-wep-setup/README.md) (section 4).
+10. **Injector hardware.** The 3168NGW passed the 08:10 injection test (30 of 30 probes), but the AP never answered its replays, and its monitor interface dropped ("Network is down") about 10 s into the replay. An AR9271 USB adapter is the common alternative. It is not tested here. The router's single radio cannot inject into its own AP.
+11. **Monitor-card acknowledgements.** At 09:25 the card received the AP's authentication and association replies, and the AP acknowledged the card's requests, but the AP never got an acknowledgement for its replies, so it never kept the card (2.14). The card did associate in the 06:32 run. The cause is unknown; it may be how the monitor-mode card acknowledges frames.
