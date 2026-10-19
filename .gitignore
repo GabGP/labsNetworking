@@ -14,6 +14,7 @@ test_log
 build/
 **/build/
 **/build/**
+lab10/router/wifi-wep-setup/out/
 
 # Log directories
 */logs/

@@ -1,0 +1,63 @@
+name: build-wpad-wep
+
+# Builds wpad-openssl with WEP for the GL.iNet GL-AR300M16 router (lab10/router/wifi-wep-setup/) and
+# publishes it as the release "wpad-wep-22.03.4", downloadable without a GitHub login. The download
+# commands are in lab10/router/wifi-wep-setup/README.md.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "lab10/router/wifi-wep-setup/build.sh"
+      - ".github/workflows/build-wpad-wep.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # OpenWrt 22.03 needs Python's distutils, which Ubuntu 24.04 no longer has.
+    container: ubuntu:22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the SDK's host tools
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends build-essential ca-certificates gawk gettext \
+            git libncurses-dev python3 python3-distutils rsync unzip wget xz-utils zstd file binutils
+
+      # The SDK is not meant to be built as root.
+      - name: Build
+        run: |
+          useradd --create-home builder
+          chown -R builder "$GITHUB_WORKSPACE"
+          su builder -c "OUT_DIR=$GITHUB_WORKSPACE/out JOBS=$(nproc) lab10/router/wifi-wep-setup/build.sh"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wpad-wep
+          path: out/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: wpad-wep
+          path: out
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: wpad-wep-22.03.4
+        run: |
+          gh release delete "$TAG" --cleanup-tag --yes || true
+          gh release create "$TAG" out/* --target "$GITHUB_SHA" \
+            --title "wpad-openssl with WEP for the GL-AR300M16 (OpenWrt 22.03.4)" \
+            --notes "For testing only: WEP is broken encryption. Built by build-wpad-wep from $GITHUB_SHA. How to try it on the router: lab10/router/wifi-wep-setup/README.md"
