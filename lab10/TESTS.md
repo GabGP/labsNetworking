@@ -2,7 +2,7 @@
 
 Working record for the WEP key-recovery lab (Laboratorio #10, "Captura el Router"). The submission asks for three parts: the commands used for the recovery, brief technical evidence of the tests, and the adversarial or physical actions. This file follows those three parts and records the decisions made along the way. Add a row for each run with its log file name, so every result can be checked against `logs/`.
 
-**Status, 19 Oct 2026: WEP key recovered from the GL router.** The run is in section 2.7, and its capture is `logs/cap_nophone-01.cap`. Most of the IVs came from a phone downloading a file from the laptop over the WEP network. The replay added almost none: the access point sent only 24 broadcast frames in the whole run. The replay also stalled the Intel card's firmware 11 times in five minutes. Whether wired broadcasts can supply the IVs without a client is the next test (section 5).
+**Status, 19 Oct 2026: WEP key recovered from the GL router.** The run is in section 2.7, and its capture is `logs/cap_nophone-01.cap`. Most of the IVs came from a phone downloading a file from the laptop over the WEP network. The replay added almost none: the access point sent only 24 broadcast frames in the whole run. The replay also stalled the Intel card's firmware 11 times in five minutes. A second run on 19 Oct got 99% of its IVs from wired broadcasts, with one client present for part of it (section 2.9).
 
 > **Authorized targets only:** the GL router you own, and the class router only during its evaluation window. `injection-test.sh` probes every AP on its channel. Keep tests on channel 6, where only the GL router was heard at 21:18. Channel 1 has other networks in range.
 
@@ -52,7 +52,7 @@ sudo firewall-cmd --add-rich-rule='rule family="ipv4" source address="192.168.8.
 python3 -m http.server 8000 --bind <laptop-LAN-address>
 ```
 
-Not run yet (section 5, item 7): a passive capture with the phone's Wi-Fi off, while the laptop sends broadcasts to the LAN.
+Run on 19 Oct with one client present (section 2.9). The repeat with no client is open (section 5, item 7).
 
 ## 2. Test evidence
 
@@ -162,7 +162,22 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 - **Wired broadcasts reach the WEP network.** The laptop sent 600 UDP broadcasts to the LAN. The router's LAN port received 619 frames, and its radio transmitted 600, one per broadcast, with none dropped (router counters).
 - **Pings to the phone get no replies.** The router sent 500 echo requests to the phone's address. Its radio sent 511 frames (including beacons) and received 18. None of the replies arrived.
 - **The router's own tools cannot send broadcasts.** BusyBox `ping` has no `-b` option, and its `nc` sent nothing.
-- **Open:** whether the broadcast frames carry IVs, and at what rate. That needs a passive capture with no client (section 5, item 7).
+- **Answered in 2.9:** the broadcast frames carry IVs, at close to the send rate.
+
+### 2.9 Broadcasts supply the IVs (19 Oct, passive)
+
+- **Run:** `logs/2026-10-19_052643_cap_bcast/`, passive, channel 6. The laptop sent 300 UDP broadcasts a second to the LAN from about 05:26:22, and stopped them at about 05:34. The router's radio sent 143,898 frames in that window (router counter). The capture started at 05:26:43 and stopped at 05:32:00, with the key recovered before it stopped. The sender is a short Python script kept outside the repo.
+- **Where the IVs came from.** The capture holds 47,535 WEP data frames to or from the AP (the CSV says 47,529 IVs):
+
+| Direction | Frames |
+| :--- | ---: |
+| AP broadcasts | 47,041 |
+| AP to client | 137 |
+| Client to AP | 357 |
+
+- One client was associated from 05:27:43 to 05:30:53 (last seen). Its 494 frames are about 1% of the IVs. This breaks the phone-off condition for those three minutes.
+- In 05:31, with no client data frames, the capture logged 17,816 broadcast IVs, about 297 a second, close to the send rate. The minutes with the client were lower, 4,300 to 11,600. That may be the access point holding broadcasts for a client in power-save mode. This is not tested.
+- The laptop's Wi-Fi dropped when the capture started (05:26:44) and came back when the restore finished (05:32:17).
 
 ## 3. Decisions
 
@@ -194,6 +209,6 @@ The guide asks for these in the submission. So far:
 4. **`wifi_set_channel`.** It checks only the exit status, so the 08:47 "channel -1" went unnoticed. Reading the channel back after `iw set channel` would catch it.
 5. **Channel 36 at 10:30.** Three APs found on 5 GHz, no reply. An earlier note said 36 and 149 are not allowed in the GT domain. The 3168NGW showed both allowed at 21:33, so that note was wrong, and regulation does not explain this failure.
 6. **Docs.** Fixed on 19 Oct: `README.md` and `COMMANDS.md` name the 3168NGW, say the 10:30 test found no AP because the router was off, and give channel 6 for the lab router.
-7. **IVs with no client (section 2.8).** Turn the phone's Wi-Fi off. Capture passively on channel 6 (`wep-crack.sh -m passive`) while the laptop sends about 300 UDP broadcasts a second to the LAN. If the access point's broadcast frames carry IVs, the key can come out with no client at all. This is the next test.
+7. **IVs with no client (sections 2.8 and 2.9).** On 19 Oct, the broadcasts gave 99% of the IVs in a five-minute capture, with one client present for three minutes. Still open: a run with the phone's Wi-Fi off and no client in the station list, to confirm that broadcasts alone are enough for the key.
 8. **ESP32-C3 as WEP clients.** Check first that one board joins the Test network with its auth threshold set to WEP. The ESP-IDF docs describe this, but the v4.3 guide calls WEP deprecated, and nothing has been tested on the board: [ESP-IDF Wi-Fi API, v5.4.4](https://docs.espressif.com/projects/esp-idf/en/v5.4.4/esp32c3/api-reference/network/esp_wifi.html) and [Wi-Fi driver guide, v4.3](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32c3/api-guides/wifi.html).
 9. **Restore WPA2 on the GL router** after the lab, with the steps in [router/wifi-wep-setup/README.md](router/wifi-wep-setup/README.md) (section 4).
