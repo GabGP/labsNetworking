@@ -34,20 +34,29 @@ The whole game is therefore **IVs per second**:
 
 | Card | Monitor mode | Injection | Role in this lab |
 |------|:---:|:---:|---|
-| Intel **AC8260** (`iwlwifi`, built-in) | ✅ | ⚠️ partial | Passive capture and scanning. Injected for some APs only (see below) |
+| Intel **AC8260** (`iwlwifi`, built-in) | ✅ | ⚠️ partial | Passive capture and scanning. Active on channel 1 since 10:22 on 18 Oct; failed for two hours before that (see below) |
 
-The Intel AC8260 injected only part of the time on 18 Oct 2026. At 06:47 on channel 1
-no AP answered. At 07:26 on channel 1, one nearby AP answered 30/30, a second 28/30,
-and a third did not answer. Test the target itself with
-`sudo ./scripts/injection-test.sh -i <iface> -c <channel> -b <AP_BSSID>`, and repeat it before
-relying on a card. Adapters such as an Atheros AR9271 USB or a MediaTek MT7921AU are
-often suggested for active mode. Neither has been tested in this lab.
+On 18 Oct 2026 the Intel AC8260 failed in every test from the 08:30 reboot until 10:22,
+and the cause is not known. Since 10:22 it has injected on channel 1 in every test (15 runs).
+It injected on channel 6 at 08:18 and 19:41, and at 10:30 it heard no AP on channel 6.
+Test the target itself with `sudo ./scripts/injection-test.sh -i <iface> -c <channel> -b <AP_BSSID>`,
+and repeat it before relying on a card. Adapters such as an Atheros AR9271 USB or a MediaTek
+MT7921AU are often suggested for active mode. Neither has been tested in this lab. A spare
+Intel 3160NGW is also untested.
 
 On 17 Oct 2026 the Intel card above was replaced by a Realtek **RTL8723BE**
 (`rtl8723be`). It is a single-interface driver: `airmon-ng` switches `wlp2s0` itself
 into monitor mode instead of creating a `wlp2s0mon` interface, so the script has to
 put it back in managed mode on exit. Injection passed on channel 1 in several
 tests on 17–18 Oct and failed in others. The cause is not known yet.
+
+On 18 Oct the Realtek heard channel 6 APs normally in managed mode, but in monitor mode its
+receiver stayed on the channel it started on. Changing the channel after monitor mode starts
+did not move it. Channel 1 works because the card is connected to a channel 1 network when
+monitor mode starts. Starting monitor mode while connected to a channel 6 network worked once,
+at 30/30. A single-frequency scan and an IBSS network on channel 6 did not keep the receiver
+there. A monitor scan therefore shows only the channel the card started on. Use
+`managed-scan.sh` to find a network's channel.
 
 ---
 
@@ -82,6 +91,15 @@ Starts monitor mode and runs `airodump-ng` in the foreground, so the access
 points show in the terminal. Use it to find the BSSID and channel before
 `wep-crack.sh`. Ctrl-C stops it and restores WiFi. It hops 2.4 GHz channels by
 default; `-B abg` adds 5 GHz, which only the AC8260 can see.
+
+### `managed-scan.sh`
+
+Runs a normal managed-mode scan. The card stays in managed mode and keeps its connection. It
+lists each network's channel, signal, BSSID and name, sorted by channel, and marks the
+connected one with `*`. A hidden network shows as `<hidden>`, but its beacons still carry its
+channel and BSSID. Use it to find the channel of a network you don't know. `-c 6` shows one
+channel only. The table is also saved to `logs/managed-scan-<time>.txt`. The kernel keeps
+earlier scan results for a few minutes, so an entry can be slightly old.
 
 ### `injection-test.sh`
 
@@ -157,6 +175,9 @@ The scripts clean up on exit. If a run was killed and WiFi stays dark, run
 | Only `lo` after the script exits | The card stayed in monitor mode. Run `sudo ./scripts/wifi-recover.sh -i wlp2s0`; COMMANDS.md §8 has the manual steps. |
 | No `wlan0` | Fedora names it `wlp…`; run `iw dev`. |
 | Router AP not broadcasting after `wifi-wep-test.sh` | Read the hostapd log on the router (COMMANDS.md §7). The firmware may have been built without WEP. |
+| Target channel unknown | `sudo ./scripts/managed-scan.sh -i wlp2s0` lists each network's channel, BSSID and name. Hidden names show as `<hidden>`. |
+| Target is on channel 6 and the card is the Realtek | The Realtek receives only on the channel it started on. Use the AC8260 on that channel, or connect the card to a network on that channel before monitor mode starts (see Hardware). |
+| Hidden network, injection test shows 0/30 | Most hidden networks ignore probes that don't name them, so the test can't see them even when injection works. Get the name first; airodump shows it once a client connects. Untested in this lab. |
 
 ---
 

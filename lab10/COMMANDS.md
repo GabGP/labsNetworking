@@ -30,7 +30,12 @@ sudo dnf install aircrack-ng
 sudo ./scripts/airodump.sh -i wlp2s0            # lists every AP with its BSSID and CH; Ctrl-C stops and restores WiFi
 sudo ./scripts/airodump.sh -i wlp2s0 -c 6       # same, locked to channel 6
 sudo ./scripts/airodump.sh -i wlp2s0 -B abg    # also hop 5 GHz channels (AC8260 only)
+sudo ./scripts/managed-scan.sh -i wlp2s0        # managed scan: channel, signal, BSSID and name; keeps the connection
+sudo ./scripts/managed-scan.sh -i wlp2s0 -c 6   # managed scan of channel 6 only
 ```
+
+The RTL8723BE's monitor scans only show the channel the card started on. Use `managed-scan.sh`
+to find a network's channel with it.
 
 ## 4. Run the attack with the script
 
@@ -104,6 +109,9 @@ ssh root@your-router-ip "SSID=Lab SLOT=2 sh -s -- '12345' '67890'" < router/wifi
 
 # Check the AP is actually up
 ssh root@your-router-ip "logread | grep -i hostapd | tail"
+
+# The script doesn't change the channel. For practice, set the 2.4 GHz channel to 1 in the
+# router's wireless settings. Both cards injected on channel 1 in our tests.
 ```
 
 Restore WPA2 afterwards with the backup the script made:
