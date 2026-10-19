@@ -175,6 +175,7 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 
 7. **Crack in passive mode while the network carries traffic.** On the 3168NGW the replay added almost no IVs (2.7), and it stalled the firmware 11 times in five minutes. The traffic of a client sets the IV rate.
 8. **Traffic for IVs: wired broadcasts first, no client needed.** An ESP32-C3 as a WEP client is the fallback if broadcasts do not supply IVs (section 5, item 8). Both stay on our own router.
+9. **One folder per run in `logs/`.** From 19 Oct, each run writes into `logs/<time>_<prefix>/`, so its capture, key and output stay together and an earlier run is never overwritten. The runs before that are still flat in `logs/`, and their paths in this file are unchanged.
 
 ## 4. Adversarial and physical actions
 

@@ -2,9 +2,9 @@
 #
 # injection-test.sh — check whether a Wi-Fi card can inject frames (aireplay-ng --test)
 #
-# Starts monitor mode, locks the card to the channel, runs the test, saves the output to
-# logs/, and restores WiFi on exit. The channel is required: aireplay-ng only hears APs on
-# the channel the card is on, so a test without one fails for no real reason.
+# Starts monitor mode, locks the card to the channel, runs the test, saves the output in a new
+# folder under logs/, and restores WiFi on exit. The channel is required: aireplay-ng only hears
+# APs on the channel the card is on, so a test without one fails for no real reason.
 #
 # With -b, the test passes only if that AP answers. aireplay-ng still probes every AP on the
 # channel, because its -a mode does not work on the AC8260. Without -b, one answering AP is
@@ -21,7 +21,6 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LAB_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 LOGDIR="$LAB_DIR/logs"
-AIRMON_LOG="$LOGDIR/airmon.log"
 # shellcheck source=wifi-lib.sh
 source "$SCRIPT_DIR/wifi-lib.sh"
 
@@ -43,9 +42,10 @@ wifi_preflight airmon-ng aireplay-ng iw ip nmcli systemctl
 [[ "$CHANNEL" =~ ^[0-9]+$ ]] || die "-c must be a channel number, e.g. 1 or 36"
 wifi_require_iface "$IFACE"
 
-mkdir -p "$LOGDIR"
+RUNDIR=$(new_run_dir "$LOGDIR" "injection-ch$CHANNEL") || die "Could not create a run folder in $LOGDIR"
+AIRMON_LOG="$RUNDIR/airmon.log"
 : > "$AIRMON_LOG"
-OUT="$LOGDIR/injection-$(date +%Y%m%d-%H%M%S)-ch$CHANNEL.txt"
+OUT="$RUNDIR/injection.txt"
 
 wifi_guard "$IFACE"
 wifi_monitor_start "$IFACE"

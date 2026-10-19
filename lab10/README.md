@@ -68,17 +68,17 @@ The laptop scripts are in `scripts/`. The router script is in `router/`.
 1. Stops NetworkManager and wpa_supplicant (`airmon-ng check kill`) and puts the
    card into monitor mode.
 2. Locks the monitor interface to the AP's channel and starts `airodump-ng` on
-   the BSSID, writing `logs/<prefix>-01.cap` and `logs/<prefix>-01.csv`.
+   the BSSID, writing `<prefix>-01.cap` and `<prefix>-01.csv` in the run folder.
 3. **Active mode only:** runs the injection test against the target BSSID and
-   saves the output to `logs/<prefix>-injection.txt`. If the target does not
+   saves the output to `<prefix>-injection.txt` in the run folder. If the target does not
    answer, it switches to passive mode, so it never silently does nothing. If the
    target answers, it starts fake-auth and ARP replay.
 4. Every 3 s it prints the IV count, the IV rate and, in active mode, the ARP replay counters. Once there are at least 5000 IVs it runs `aircrack-ng`, then runs it again each time the count grows by `-t` (default 20000). A try can take up to a minute, which pauses the progress lines, but the IV count keeps rising.
-5. When the key is found, it prints the key in ASCII and hex, writes `logs/<prefix>.key` (26 hex digits, as aircrack-ng writes it), and cleans up.
+5. When the key is found, it prints the key in ASCII and hex, writes `<prefix>.key` (26 hex digits, as aircrack-ng writes it), and cleans up.
 
 Notes:
 
-- Output goes to `logs/`, which is gitignored.
+- Each run gets its own folder under `logs/` (gitignored), named by the start time and the prefix, for example `2026-10-19_044700_cap_gl/`. It holds the capture, the CSV, the key, the attack output and the airmon log, so one run's files stay together.
 - On exit, including Ctrl-C, the script stops the monitor interface and restarts
   NetworkManager.
 
@@ -86,8 +86,9 @@ Notes:
 
 Starts monitor mode and runs `airodump-ng` in the foreground, so the access
 points show in the terminal. Use it to find the BSSID and channel before
-`wep-crack.sh`. Ctrl-C stops it and restores WiFi. It hops 2.4 GHz channels by
-default; `-B abg` adds 5 GHz, which only the AC8260 can see.
+`wep-crack.sh`. Ctrl-C stops it and restores WiFi. Its capture goes to a new folder
+under `logs/`. It hops 2.4 GHz channels by default; `-B abg` adds 5 GHz, which only the
+AC8260 can see.
 
 ### `managed-scan.sh`
 
@@ -95,13 +96,13 @@ Runs a normal managed-mode scan. The card stays in managed mode and keeps its co
 lists each network's channel, signal, BSSID and name, sorted by channel, and marks the
 connected one with `*`. A hidden network shows as `<hidden>`, but its beacons still carry its
 channel and BSSID. Use it to find the channel of a network you don't know. `-c 6` shows one
-channel only. The table is also saved to `logs/managed-scan-<time>.txt`. The kernel keeps
+channel only. The table is also saved to a new folder under `logs/`, as `scan.txt`. The kernel keeps
 earlier scan results for a few minutes, so an entry can be slightly old.
 
 ### `injection-test.sh`
 
-Locks the card to a channel, runs `aireplay-ng --test`, and saves the output to
-`logs/injection-<time>-ch<N>.txt`. It prints the replies per AP. Exit 0 means
+Locks the card to a channel, runs `aireplay-ng --test`, and saves the output to a new folder
+under `logs/`, as `injection.txt`. It prints the replies per AP. Exit 0 means
 injection works. With `-b <AP_BSSID>` it passes only if that AP answers.
 aireplay-ng still probes every AP on the channel, because its `-a` mode does not
 work on the AC8260. The channel is required, because the test only hears APs on
@@ -110,7 +111,8 @@ the card's channel.
 ### `wifi-recover.sh`
 
 Puts the card back in managed mode and restarts NetworkManager. Use it when a
-run was killed and WiFi stayed dark. It changes nothing on a card that is fine.
+run was killed and WiFi stayed dark. It changes nothing on a card that is fine. Its
+log goes to a new folder under `logs/`.
 
 ### `wifi-lib.sh`
 
@@ -143,8 +145,8 @@ because `iwinfo` still reports the WEP settings after hostapd has refused them.
  KEY RECOVERED
  ASCII:    <13 characters>
  Hex:      <13 pairs of hex, colon separated>
- Saved to: logs/cap_gl.key
- Capture:  logs/cap_gl-01.cap
+ Saved to: logs/<run>/cap_gl.key
+ Capture:  logs/<run>/cap_gl-01.cap
 ============================================================
 ```
 

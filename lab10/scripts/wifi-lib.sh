@@ -12,10 +12,12 @@
 # Typical use:
 #   source "$SCRIPT_DIR/wifi-lib.sh"
 #   wifi_preflight airmon-ng airodump-ng ...
+#   RUNDIR=$(new_run_dir "$LOGDIR" prefix)
+#   AIRMON_LOG="$RUNDIR/airmon.log"
 #   wifi_guard "$IFACE"              # from here on, any exit restores WiFi
 #   wifi_monitor_start "$IFACE"      # sets MON
 #   wifi_set_channel 6
-#   airodump_start "$LOGDIR/prefix" 6 "" bg
+#   airodump_start "$RUNDIR/prefix" 6 "" bg
 #
 WIFI_PIDS=()         # background processes stopped before the card is restored
 WIFI_KILLED=0        # 1 once airmon-ng check kill has stopped NetworkManager
@@ -26,6 +28,18 @@ die() { echo "[!] $*" >&2; exit 1; }
 
 # Print the comment header of the calling script as help, then exit (1 unless given a code).
 usage() { sed -n '2,${ /^#/!q; s/^# \{0,1\}//p }' "$0"; exit "${1:-1}"; }
+
+# Makes a new folder for one run under the log directory $1, named by the start time and $2, and
+# prints its path. A second run in the same second gets a -2 suffix, so none is overwritten.
+new_run_dir() {
+  local base="$1/$(date +%Y-%m-%d_%H%M%S)_$2" dir n=1
+  dir=$base
+  while [[ -e "$dir" ]]; do
+    n=$((n + 1))
+    dir="$base-$n"
+  done
+  mkdir -p "$dir" && echo "$dir"
+}
 
 # Type of an interface ("managed", "monitor", ...); empty if the interface doesn't exist.
 iface_type() { iw dev "$1" info 2>/dev/null | awk '$1=="type"{print $2}'; }

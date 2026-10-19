@@ -4,7 +4,7 @@
 #
 # Starts monitor mode and runs airodump-ng in the foreground, so the AP table shows here.
 # Use it to find a target's BSSID and channel. Ctrl-C stops it and restores WiFi.
-# Files go to logs/<prefix>-01.cap and logs/<prefix>-01.csv.
+# Files go to a new folder under logs/: <prefix>-01.cap and <prefix>-01.csv.
 #
 # airodump-ng hops 2.4 GHz channels unless told otherwise. The AC8260 can also see 5 GHz
 # (-B abg); the RTL8723BE cannot.
@@ -19,7 +19,6 @@ set -u
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 LAB_DIR=$(cd "$SCRIPT_DIR/.." && pwd)
 LOGDIR="$LAB_DIR/logs"
-AIRMON_LOG="$LOGDIR/airmon.log"
 # shellcheck source=wifi-lib.sh
 source "$SCRIPT_DIR/wifi-lib.sh"
 
@@ -27,7 +26,7 @@ IFACE=""
 CHANNEL=""
 BSSID=""
 AIRODUMP_BAND="bg"
-PREFIX="scan-$(date +%Y%m%d-%H%M%S)"
+PREFIX="scan"
 while getopts ":i:c:b:B:w:h" opt; do
   case "$opt" in
     i) IFACE="$OPTARG" ;;
@@ -46,11 +45,12 @@ wifi_preflight airmon-ng airodump-ng iw ip nmcli systemctl
 [[ "$AIRODUMP_BAND" =~ ^[abg]+$ ]] || die "-B takes a combination of a, b and g, e.g. bg or abg"
 wifi_require_iface "$IFACE"
 
-mkdir -p "$LOGDIR"
+RUNDIR=$(new_run_dir "$LOGDIR" "$PREFIX") || die "Could not create a run folder in $LOGDIR"
+AIRMON_LOG="$RUNDIR/airmon.log"
 : > "$AIRMON_LOG"
 
 wifi_guard "$IFACE"
 wifi_monitor_start "$IFACE"
 
-echo "[*] Capturing to $LOGDIR/$PREFIX-01.cap and .csv. Ctrl-C stops and restores WiFi."
-airodump_start "$LOGDIR/$PREFIX" "$CHANNEL" "$BSSID"
+echo "[*] Capturing to $RUNDIR/$PREFIX-01.cap and .csv. Ctrl-C stops and restores WiFi."
+airodump_start "$RUNDIR/$PREFIX" "$CHANNEL" "$BSSID"

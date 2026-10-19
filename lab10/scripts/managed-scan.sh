@@ -11,7 +11,7 @@
 #   sudo ./scripts/managed-scan.sh -i wlp2s0          # every channel the card supports
 #   sudo ./scripts/managed-scan.sh -i wlp2s0 -c 6     # one channel only
 #
-# The table is also saved to logs/managed-scan-<time>.txt.
+# The table is also saved in a new folder under logs/, as scan.txt.
 #
 set -u
 
@@ -51,8 +51,6 @@ if [[ -n "$CHANNEL" ]]; then
   FREQ_ARG=(freq "$FREQ")
 fi
 
-mkdir -p "$LOGDIR"
-OUT="$LOGDIR/managed-scan-$(date +%Y%m%d-%H%M%S).txt"
 echo "[*] Scanning $IFACE${CHANNEL:+ on channel $CHANNEL} in managed mode (the connection stays up)..."
 if ! RAW=$(iw dev "$IFACE" scan ${FREQ_ARG[@]+"${FREQ_ARG[@]}"} 2>&1); then
   die "scan failed (another scan may be running; try again): $(tail -n 1 <<<"$RAW")"
@@ -90,6 +88,9 @@ PARSED=$(awk '
 if [[ -n "$CHANNEL" ]]; then
   PARSED=$(awk -F'\t' -v c="$CHANNEL" '$1 == c' <<<"$PARSED")
 fi
+
+RUNDIR=$(new_run_dir "$LOGDIR" "managed-scan") || die "Could not create a run folder in $LOGDIR"
+OUT="$RUNDIR/scan.txt"
 
 COUNT=$(grep -c . <<<"$PARSED")
 {

