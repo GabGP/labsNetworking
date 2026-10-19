@@ -1,0 +1,64 @@
+# WEP on the GL-AR300M16 — Test Build of wpad
+
+Part of [Lab #10](../../README.md).
+
+> [!WARNING]
+> **For testing only.** WEP is broken encryption: anyone in range can recover the key in minutes.
+
+## Table of Contents
+- [1. Why the Stock Router Cannot Do WEP](#1-why-the-stock-router-cannot-do-wep)
+- [2. Build](#2-build)
+- [3. Files](#3-files)
+
+---
+
+## <a id="1-why-the-stock-router-cannot-do-wep"></a>1. Why the Stock Router Cannot Do WEP
+
+hostapd, the program that runs the access point, is part of the `wpad-openssl` package. On GL.iNet
+firmware 4.3.27 to 4.3.30 it is version `2022-01-16-cff80b4f-18.2`, on OpenWrt 22.03.4
+(`r20123-38ccc47687`, `ath79/nand`). It was compiled without WEP. Given a WEP config, it refuses to
+start and the radio stays down:
+
+```
+hostapd: Line 34: unknown configuration item 'wep_key0'
+hostapd: Line 35: unknown configuration item 'wep_default_key'
+netifd: Device setup failed: HOSTAPD_START_FAILED
+```
+
+WEP is a build option, `CONFIG_WPA_ENABLE_WEP`, and it is off by default in OpenWrt 22.03. OpenWrt's
+own `wpad-openssl` packages are built without it too, so installing them does not help. The
+Wi-Fi driver (ath9k) supports WEP, and so does OpenWrt's config script, which writes the
+`wep_key0` lines.
+
+[`build.sh`](build.sh) builds the same package from OpenWrt's SDK for that release, with WEP on.
+It stops when the built version is not exactly GL's or when WEP did not get compiled in.
+
+## <a id="2-build"></a>2. Build
+
+The SDK runs on x86_64 Linux only, and it needs Python's `distutils`. This laptop is x86_64, but
+Fedora 44 has no `distutils`, so `build.sh` stops at its check here. Two ways:
+
+**GitHub Actions (no setup).** [`build-wpad-wep.yml`](../../../.github/workflows/build-wpad-wep.yml)
+runs on every push to `main` that changes `build.sh` or the workflow, or by hand: *Actions →
+build-wpad-wep → Run workflow*. It takes about 15–30 minutes. The result is the release
+`wpad-wep-22.03.4` of this repository, which downloads without a GitHub login. On this laptop:
+
+```bash
+mkdir -p ~/wpad-wep && cd ~/wpad-wep
+base=https://github.com/<owner>/labsNetworking/releases/download/wpad-wep-22.03.4
+curl -fL -O "$base/wpad" -O "$base/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing
+```
+
+Replace `<owner>` with the GitHub account in `git remote get-url origin`.
+
+**Local build (not set up).** `build.sh` needs Ubuntu 22.04, or an Ubuntu 22.04 container or VM,
+with the packages listed at the top of the script. A local build writes `out/` next to the script,
+and that folder is gitignored.
+
+## <a id="3-files"></a>3. Files
+
+| File | Runs on | What it does |
+| :--- | :--- | :--- |
+| [`build.sh`](build.sh) | x86_64 Linux, Ubuntu 22.04 | Downloads and checks the SDK, builds `wpad-openssl` with WEP, checks version and WEP, writes `out/` |
+| [`build-wpad-wep.yml`](../../../.github/workflows/build-wpad-wep.yml) | GitHub Actions | Runs `build.sh` and publishes the release `wpad-wep-22.03.4` |
