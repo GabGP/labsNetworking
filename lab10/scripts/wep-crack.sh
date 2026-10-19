@@ -125,6 +125,12 @@ last_iv=0                # #Data at the last aircrack attempt (0 = none yet)
 prev_iv=0                # #Data at the last progress line, for the rate
 while true; do
   sleep "$RETRY_SECS"
+  # A card reset or a stopped attack would otherwise leave the count frozen, so stop with the reason.
+  iw dev "$MON" info >/dev/null 2>&1 || die "$MON is gone: the card reset (see: sudo dmesg | tail -n 30)."
+  if [[ "$MODE" == "active" ]]; then
+    kill -0 "$fakeauth_pid" 2>/dev/null || die "fake auth stopped; see ${OUT}-fakeauth.txt"
+    kill -0 "$arp_pid" 2>/dev/null || die "ARP replay stopped; see ${OUT}-arpreplay.txt"
+  fi
   CSV="${OUT}-01.csv"
   ivs=0
   if [[ -f "$CSV" ]]; then
