@@ -4,6 +4,8 @@ Working record for the WEP key-recovery lab (Laboratorio #10, "Captura el Router
 
 **Status, 19 Oct 2026: WEP key recovered from the GL router.** The run is in section 2.7, and its capture is `logs/cap_nophone-01.cap`. Most of the IVs came from a phone downloading a file from the laptop over the WEP network. The replay added almost none: the access point sent only 24 broadcast frames in the whole run. The replay also stalled the Intel card's firmware 11 times in five minutes. A second run on 19 Oct got 99% of its IVs from wired broadcasts, with one client present for part of it (section 2.9). With no station associated, the same broadcasts gave no IVs (section 2.10). Corrections from 19 Oct: in the 06:32 run the 82,000 frames went to the phone's download, not to the replay card, which got no data frames (section 2.12). The 08:13 and 08:21 passive runs cracked from that same download (section 2.13). The fastest run so far was a unicast flood to the phone, which cracked the key 23.5 seconds after the phone's first frame (section 2.18).
 
+**Status, 20 Oct 2026:** the key came out again on the 3168NGW from the phone's download, in two runs (section 2.20). Passive capture on the AC8260 recovered a key at 00:32 and at 00:46, before the cable moved. The AC8260 injects with the cable on the other connector (section 2.19). One ESP32 run (06:14, section 2.21) got 72,149 broadcast IVs with one station present. That station is probably the board, but the board's MAC is not in the repo yet, so this is unconfirmed.
+
 > **Authorized targets only:** the GL router you own, and the class router only during its evaluation window. `injection-test.sh` probes every AP on its channel. Keep tests on channel 6, where only the GL router was heard at 21:18. Channel 1 has other networks in range.
 
 ---
@@ -54,6 +56,15 @@ python3 -m http.server 8000 --bind <laptop-LAN-address>
 
 Run on 19 Oct with one client present (section 2.9). The repeat with no client gave no IVs (section 2.10).
 
+Flood from the laptop for the IVs (sections 2.9, 2.18 and 2.21). Run one copy at a time, and start the capture first:
+
+```bash
+python3 scripts/broadcast_feed.py 192.168.8.255 300 600     # broadcasts to the LAN, 300 a second for 10 minutes
+python3 scripts/broadcast_feed.py <phone IP> 2000 120    # unicast to one station's IP, 2,000 a second for 2 minutes (2.18)
+```
+
+The 06:14 board run (2.21) used a broadcast flood. Its rate is not recorded in the run folder.
+
 ## 2. Test evidence
 
 ### 2.1 Cards
@@ -61,8 +72,8 @@ Run on 19 Oct with one client present (section 2.9). The repeat with no client g
 | Card | Driver, firmware | Antennas | Period (18 Oct unless noted) | Result |
 | :--- | :--- | :--- | :--- | :--- |
 | Realtek RTL8723BE | `rtl8723be`, single interface | not checked | 17 Oct ~23:05 to 18 Oct 06:43; 19:52 to 21:11 | PCIe RxErr errors logged, 65–120 a minute. Injection passed on channel 1 in some runs and failed in others. Channel 6 receives only if monitor mode starts on a channel 6 network |
-| Intel AC8260 | `iwlwifi` with `iwlmvm`, firmware 36.c8e8e144.0 | 2x2 chips, one cable fitted | 06:43 to 19:45 (three boots) | No PCIe errors. Failed in every session from 08:47 to 09:59. Passed from 10:22 (see 2.4) |
-| Intel 3168NGW (PCI 8086:24fb) | `iwlwifi` with `iwlmvm`, firmware 29.0bd893f3.0 | 1x1, one chain | from 21:16 | 8 of 8 runs passed |
+| Intel AC8260 | `iwlwifi` with `iwlmvm`, firmware 36.c8e8e144.0 | 2x2 chips, one cable fitted | 06:43 to 19:45 on 18 Oct (three boots); 23:24 on 19 Oct to 03:51 on 20 Oct | No PCIe errors. Failed in every session from 08:47 to 09:59 on 18 Oct. Passed from 10:22 (see 2.4). On 20 Oct it failed with the cable on chain 0 and passed on chain 1 (see 2.19) |
+| Intel 3168NGW (PCI 8086:24fb) | `iwlwifi` with `iwlmvm`, firmware 29.0bd893f3.0 | 1x1, one chain | from 21:16 on 18 Oct; firmware loaded at 03:51 on 20 Oct (kernel log) | 8 of 8 runs passed on 18 Oct; 4 of 4 on 20 Oct (see 2.20) |
 
 The Realtek and the AC8260 both sat in PCI slot 02:00.0.
 
@@ -250,11 +261,77 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 - **Frames:** 51,224 AP-to-phone frames were 175 bytes. Nine other frames had other lengths.
 - **Reading:** the unicast flood gave about 2,000 IVs a second, so 40,000 IVs took about 20 seconds. The 0-byte run (2.16) and the mixed run (2.17) did not crack, because their 88-byte frames confused the default attack.
 
+### 2.19 AC8260 injection on 20 Oct (cable on the other connector)
+
+The cable was on chain 0 for the runs up to 01:51 and on chain 1 from the 01:54 run. The move itself comes from the session notes and is not logged.
+
+| Time | Channel | Result | Log folder (`logs/`) |
+| :--- | :---: | :--- | :--- |
+| 00:32 | 6 | FAIL, 0/30 on the lab AP "Test". The script went passive: 48,827 IVs, key recovered | `2026-10-20_003247_cap_gl` |
+| 00:46 | 6 | FAIL, 0/30 on "Test". The script went passive: 51,418 IVs, key recovered | `2026-10-20_004631_cap_gl` |
+| 00:53 | 6 | FAIL, 0/30 on "Test". The script went passive: 0 IVs, no key | `2026-10-20_005341_cap_gl` |
+| 00:57 | 1 | FAIL, 0/30 on home AP, home extender and other AP A | `2026-10-20_005657_injection-ch1` |
+| 01:47 | 1 | FAIL, 0/30 on the same three APs | `2026-10-20_014734_injection-ch1` |
+| 01:48 | 6 | 3/30 on "Test"; aireplay printed "Injection is working!" | `2026-10-20_014839_injection-ch6` |
+| 01:49 | 1 | FAIL, 0/30 on the same three APs | `2026-10-20_014911_injection-ch1` |
+| 01:50 | 1 | FAIL, 0/30 on the same three APs | `2026-10-20_015000_injection-ch1` |
+| 01:51 | 6 | FAIL, 0/30 on "Test" and "other AP C" | `2026-10-20_015107_injection-ch6` |
+| 01:54 | 6 | PASS, 30/30 on "Test" | `2026-10-20_015453_injection-ch6` |
+| 01:55 | 1 | PASS: home AP 30/30, other AP A 15/30, home extender 14/30, other AP B 3/30 | `2026-10-20_015521_injection-ch1` |
+| 01:56 | 6 | PASS, 30/30 (replay run, below) | `2026-10-20_015626_cap_gl` |
+| 01:57 | 6 | PASS, 30/30 (replay run) | `2026-10-20_015703_cap_gl` |
+| 02:33 | 6 | PASS, 30/30 | `2026-10-20_023312_injection-ch6` |
+| 02:34 | 6 | PASS, 30/30 (replay run) | `2026-10-20_023435_cap_gl` |
+
+- **Chain 0 (00:32 to 01:51):** nine runs. Eight got 0/30, and the 01:48 run got 3/30, which aireplay reports as "Injection is working!", so it is a weak pass. The failed test sends the script to passive mode, and two of the three runs at 00:32 to 00:53 recovered a key that way (48,827 and 51,418 IVs). Passive capture worked on this card, with the cable on chain 0. The source of those IVs is not analysed yet.
+- **Chain 1 (01:54 to 02:34):** six runs, all passed. In the 01:55 run every AP replied, but only home AP answered 30/30.
+- **Replay runs on 20 Oct:** the runs at 01:56, 01:57 and 02:34 recovered no key (no `.key` file in their folders). Their fake-auth and ARP output printed "channel -1" while waiting for a beacon. The injection outputs in the same folders do not.
+
+Session notes, not in `logs/` (02:26 to 03:32). They cannot be checked against logs until they are rerun with the output saved:
+
+- **02:26:** `iw phy phy2 set antenna 2 2` failed with -95 (EOPNOTSUPP). The driver source, as read on 20 Oct, accepts that call only on the 9000, 22000 and AX210 families, so the AC8260 cannot pin its antenna.
+- **02:49 to 03:27:** a per-frame antenna field in the injected frame. At 1 Mbit/s the field was ignored. At 6 Mbit/s with the cable on chain 0, antenna 0 answered 30 of 30 in both rounds, antenna 1 (the empty chain) answered 0 of 30, and the default answered 0 of 30 (03:23). A null-frame test (03:27) gave 200 to 240 ACKs per 30 frames in every mode, so ACK counts do not show which chain sent a frame.
+- **03:32:** fake auth alone crashed the AC8260 firmware twice in 2 s. The kernel log has 10 "Microcode SW error" restarts for that card in the same boot.
+
+### 2.20 3168NGW on 20 Oct: the keys came from the phone's download
+
+- The kernel log shows the 3168's firmware loaded at 03:51:43 on 20 Oct. An earlier note put its return at 02:00, which the log does not support.
+- All four runs are in `logs/`, on channel 6 against the lab AP "Test", in active mode.
+
+| Time | Injection | Key file | IVs (CSV) | Log folder (`logs/`) |
+| :--- | :---: | :---: | ---: | :--- |
+| 04:00:47 | 30/30 | none | 63,572 | `2026-10-20_040047_cap_3168` |
+| 04:04:20 | 29/30 | yes | 46,664 | `2026-10-20_040420_cap_3168` |
+| 04:20:19 | 30/30 | yes | 68,387 | `2026-10-20_042019_cap_3168` |
+| 04:53:00 | 29/30 | none | 172 | `2026-10-20_045300_cap_3168` |
+
+- **The IVs came from the phone's download.** The AP sent frames to the phone's MAC (`<phone MAC>`, the phone from 19 Oct) in numbers that match the IV count: 46,852 frames against 46,664 IVs (04:04), 68,520 against 68,387 (04:20), and 63,730 against 63,572 (04:00). The replays added almost nothing, as in 2.7.
+- **The AP dropped the card.** In the 04:00 run the AP sent the card (`<card MAC>`) 61,842 disassociation frames and no deauthentication frames.
+- **Firmware restarts.** The kernel log shows 28 "Microcode SW error" restarts after the 03:51:43 load.
+- **"channel -1" in the attack output.** The fake-auth or ARP replay output of the 04:00, 04:04, 04:20 and 04:53 runs prints "Waiting for beacon frame ... on channel -1". Their injection tests do not. This is the first failure signature from 2.4 that appears on the 3168NGW. Whether it stopped any run has not been checked.
+- The 04:53 run got only 172 IVs. The log does not say why; the download may not have been running.
+
+### 2.21 ESP32-C3 keyless board, 20 Oct
+
+Channel 6, passive capture, folders in `logs/`.
+
+| Time | Log folder | Station seen | AP data frames | IVs | Key file |
+| :--- | :--- | :--- | ---: | ---: | :--- |
+| 04:36 | `2026-10-20_043649_esp` | none | 0 | 0 | no |
+| 05:24 | `2026-10-20_052444_board_near` | none | 0 | 0 | no |
+| 05:29 | `2026-10-20_052911_board_near` | none | 0 | 0 | no |
+| 05:37 | `2026-10-20_053755_board_near` | none | 0 | 0 | no |
+| 06:14 | `2026-10-20_061421_board_near` | `<board MAC>`, first seen 06:15:18 | 72,149 | 72,149 | yes, 26 bytes (value not copied) |
+
+- **06:14 run.** All 72,149 AP data frames went to the broadcast address, and the CSV's IV count is the same number. The AP's broadcasts started at about 06:14:30. Before the station first appeared at 06:15:18 there were 8,388 broadcast IVs. After it, there were 63,761 in 54 s, about 1,180 a second. The sender's rate is not recorded in the folder.
+- **Not confirmed as the board.** The board's MAC is not in the repo, so `<board MAC>` is not yet matched to the board. The station sent one 24-byte null data frame, at 06:15:18. No authentication or association frames from it are in the capture, so the capture does not show when it associated.
+- **Effect on 2.10.** If the board was associated before 06:15:18, the early broadcast IVs fit 2.9 and 2.10 stands. If it was not, the AP sent broadcast IVs with no station, which 2.10 says does not happen. The board's serial log gives the association time.
+
 ## 3. Decisions
 
-1. **Keep the 3168NGW as the lab card, for now.** It passed all eight runs. The AC8260 failed from 08:47 to 09:59 with no cause found. Go back to the AC8260 only if the 3168NGW shows either failure signature in 2.4.
+1. **Keep the 3168NGW as the lab card, for now.** It passed all eight runs on 18 Oct and four more on 20 Oct (2.20). The AC8260 failed from 08:47 to 09:59 on 18 Oct with no cause found, and failed from 00:32 to 01:51 on 20 Oct until its cable moved (2.19). On 20 Oct the 3168NGW's replay output printed "channel -1" while waiting for a beacon (2.20). That is the first failure signature in 2.4, so check it before the next attack run.
 2. **Channel 6 is the test channel.** Only the GL router was heard there, so no other network gets probes. Channel 1 has other networks, and `injection-test.sh` probes every AP on its channel.
-3. **One antenna cable.** With one cable fitted, the 2x2 AC8260 has no second antenna to gain from, so the 1x1 3168NGW does the same job here. The cable stays on the working connector: chain 0 for the 3168NGW, chain 1 for the AC8260 after 19:00.
+3. **One antenna cable.** With one cable fitted, the 2x2 AC8260 has no second antenna to gain from, so the 1x1 3168NGW does the same job here. The cable stays on the working connector: chain 0 for the 3168NGW, chain 1 for the AC8260 after 19:00 on 18 Oct. On 20 Oct the AC8260 failed with the cable on chain 0 and passed on chain 1 (2.19). The connector used for the 3168NGW runs on 20 Oct is not recorded, so note it with each run.
 4. **Find channels with `managed-scan.sh`.** On the Realtek, monitor mode keeps the channel it started on, so a monitor scan cannot find a network on another channel. Start monitor mode with the card connected to a network on the target channel.
 5. **L0s stays on.** Turning it off stopped the logged errors but showed no Wi-Fi gain.
 6. **Build wpad in GitHub Actions; run it from RAM once tested.** The SDK needs Ubuntu 22.04 with distutils, which this laptop lacks. The workflow builds from `lab10/router/wifi-wep-setup/` on each push to `main` that changes it. The router side, `try-on-router.sh`, mounts the build over `/usr/sbin/wpad` and writes nothing to flash. It is not tested yet, so it is held back from `main`.
@@ -268,21 +345,44 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 
 The guide asks for these in the submission. So far:
 
-- **Physical (done):** card choice (1x1 3168NGW against 2x2 AC8260 with one cable) and antenna connector (chain 0 or chain 1). See 2.1, 2.6 and decisions 1 and 3.
+- **Physical (done):** card choice (1x1 3168NGW against 2x2 AC8260 with one cable) and antenna connector. On 20 Oct the AC8260 injected only with the cable on chain 1 (2.19). See 2.1, 2.6 and decisions 1 and 3.
 - **Software (done):** a channel-locked injection test with a PASS/FAIL exit code (`injection-test.sh`); channel discovery without monitor mode (`managed-scan.sh`); recovery after a killed run (`wifi-recover.sh`).
-- **Congestion, packet loss and availability attacks (not started):** the guide asks for research on these and on the tools that identify them. No test in this file covers them.
-- **Other networks:** the channel 1 runs also sent probes to APs that were not the target. Keep tests on channel 6. No test against the class router is logged yet.
+- **Per-frame antenna (session notes only):** a radiotap antenna field on an injected frame changed which chain carried 6 Mbit/s probes on 20 Oct. It did not change 1 Mbit/s probes (2.19). No log is saved for it yet.
+- **Congestion, packet loss and availability (research only):** section 4.1 covers how each condition affects a capture and which tools show it. The tests planned for it use only our own router and devices, and none is logged yet.
+- **Other networks:** the channel 1 runs also probed APs that were not the target, for example other AP A and other AP B on 20 Oct. Keep tests on channel 6. No test against the class router is logged yet.
+
+### 4.1 Congestion, packet loss and availability: what they do to a capture
+
+These are research notes, from the 802.11 mechanisms and the tools' documentation. None of these conditions has been run against anyone.
+
+| Condition | Effect on a passive WEP capture | What shows it |
+| :--- | :--- | :--- |
+| Airtime congestion (heavy traffic from any sender on the channel) | The AP's frames wait for the channel. The monitor card misses frames it cannot hear cleanly, and senders retry. Retries repeat IVs and leave gaps in the frame count, so the IV rate falls. | Channel busy time from `iw dev <iface> survey dump` (busy against active time). Retry bit per frame (`wlan.fc.retry == 1` in tshark). IVs per minute in the CSV. |
+| Deauthentication or disassociation of a client | The client loses its session, so its data stops until it reconnects. WEP networks have no protected management frames (802.11w needs WPA2 or later), so any station can send these. The IV source goes quiet during the reconnect. | Frames of subtype 0x0c (deauth) and 0x0a (disassoc) by source and by minute (`wlan.fc.type_subtype` in tshark). Kismet's alert list includes deauth and disassociation floods. |
+| Authentication or association floods at the AP | The AP's table of stations fills, so real clients may not be able to join. | Authentication (0x0b) and association request frames by source. The AP's log (`logread` on the router). |
+| Packet loss from weak signal or interference | Frames fail their checksum, the capture has gaps, and retries rise. | Retry share per AP. Signal per AP in `airodump-ng` or `iw dev <iface> station dump`. The ESP32's packet count against the laptop's. |
+| RF noise jamming | Out of scope. The lab rules say it is illegal. | Not tested. |
+
+Our own runs already show two of these. Repeated IVs were all retries, 0.7% to 2.3% of frames (2.13). The AP sent 61,842 disassociation frames to our card in the 04:00 run on 20 Oct (2.20).
+
+Planned, not run. Each needs only our own phone and our own router:
+
+- The IV rate in the CSV with and without a disconnect of our own phone during the capture.
+- Channel busy time from `iw dev <iface> survey dump` during our own flood, set against the IV rate in the same minutes.
+- Counting deauth and disassociation frames per minute during our own capture, and logging the reconnect time, so a run shows the drop and the recovery.
 
 ## 5. Open items
 
 1. **WEP key recovered (19 Oct, section 2.7).** Keep `logs/cap_nophone-01.cap` as evidence. The `.key` file stays in `logs/` and is not in the repo.
-2. **3168NGW watch.** Run the channel 6 loop again (planned for about 23:20) and check the new logs for "channel -1" and for "No Answer" with 0/30 on every AP.
-3. **AC8260 cause.** The script restore does not explain the 10:22 pass (2.4), so the cause is still open. A test with the link-down done by hand, after a fresh boot, would show whether it matters.
+2. **3168NGW watch.** The 20 Oct injection tests passed four times on channel 6 (2.20), and none printed "channel -1" or "No Answer". The attack output on 20 Oct did print "channel -1" while waiting for a beacon (2.20). Explain that line before the next attack run, then repeat the channel 6 loop.
+3. **AC8260 cause.** The script restore does not explain the 10:22 pass (2.4). On 20 Oct the failures stopped when the cable moved to chain 1 (2.19). The cable move is the change the notes record between the failing and passing runs. A run with the cable on chain 0 and the link-down done by hand would test whether the connector explains it.
 4. **`wifi_set_channel`.** It checks only the exit status, so the 08:47 "channel -1" went unnoticed. Reading the channel back after `iw set channel` would catch it.
 5. **Channel 36 at 10:30.** Three APs found on 5 GHz, no reply. An earlier note said 36 and 149 are not allowed in the GT domain. The 3168NGW showed both allowed at 21:33, so that note was wrong, and regulation does not explain this failure.
 6. **Docs.** Fixed on 19 Oct: `README.md` and `COMMANDS.md` name the 3168NGW, say the 10:30 test found no AP because the router was off, and give channel 6 for the lab router.
-7. **Keyless station and broadcasts (sections 2.8 to 2.15).** On 19 Oct, the broadcasts gave 99% of the IVs in a five-minute capture, with one client present for three minutes. With no station associated, the same broadcasts gave no IVs (2.10). In the 06:32 run the replay card stayed associated without the key but received no data frames (2.12). At 09:25 the AP never kept the card (2.14). Still open: whether the AP sends broadcasts to a keyless card that stays associated. The ESP32-C3 board never associated on 19 Oct (2.15), so that test has not run.
-8. **ESP32-C3 as a keyless WEP station.** Espressif's raw-frame call ["cannot be used for sending encrypted or QoS frames"](https://docs.espressif.com/projects/esp-idf/en/v6.0/esp32c3/api-guides/wifi-driver/wifi-vendor-features.html), so the board cannot send WEP replays. It could still be the station in item 7. Nothing had been tested on the board before 19 Oct: [ESP-IDF Wi-Fi API, v5.4.4](https://docs.espressif.com/projects/esp-idf/en/v5.4.4/esp32c3/api-reference/network/esp_wifi.html) and [Wi-Fi driver guide, v4.3](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32c3/api-guides/wifi.html). On 19 Oct the board never associated (2.15), and its disconnect reasons are still to be recorded.
+7. **Keyless station and broadcasts (sections 2.8 to 2.15).** On 19 Oct, the broadcasts gave 99% of the IVs in a five-minute capture, with one client present for three minutes. With no station associated, the same broadcasts gave no IVs (2.10). In the 06:32 run the replay card stayed associated without the key but received no data frames (2.12). At 09:25 the AP never kept the card (2.14). The ESP32-C3 board never associated on 19 Oct (2.15). On 20 Oct one run (06:14, 2.21) got 72,149 broadcast IVs with one station present, which may be the board. Still open: confirm that the station is the board, and when it associated. The board's log has both.
+8. **ESP32-C3 as a keyless WEP station.** Espressif's raw-frame call ["cannot be used for sending encrypted or QoS frames"](https://docs.espressif.com/projects/esp-idf/en/v6.0/esp32c3/api-guides/wifi-driver/wifi-vendor-features.html), so the board cannot send WEP replays. It could still be the station in item 7. Nothing had been tested on the board before 19 Oct: [ESP-IDF Wi-Fi API, v5.4.4](https://docs.espressif.com/projects/esp-idf/en/v5.4.4/esp32c3/api-reference/network/esp_wifi.html) and [Wi-Fi driver guide, v4.3](https://docs.espressif.com/projects/esp-idf/en/v4.3/esp32c3/api-guides/wifi.html). On 19 Oct the board never associated (2.15). On 20 Oct no station appeared in four runs and one station appeared in one (2.21). Its disconnect reasons are still to be recorded.
 9. **Restore WPA2 on the GL router** after the lab, with the steps in [router/wifi-wep-setup/README.md](router/wifi-wep-setup/README.md) (section 4).
 10. **Injector hardware.** The 3168NGW passed the 08:10 injection test (30 of 30 probes), but the AP never answered its replays, and its monitor interface dropped ("Network is down") about 10 s into the replay. An AR9271 USB adapter is the common alternative. It is not tested here. The router's single radio cannot inject into its own AP.
 11. **Monitor-card acknowledgements.** At 09:25 the card received the AP's authentication and association replies, and the AP acknowledged the card's requests, but the AP never got an acknowledgement for its replies, so it never kept the card (2.14). The card did associate in the 06:32 run. The cause is unknown; it may be how the monitor-mode card acknowledges frames.
+12. **Antenna probe output.** The probes from 02:49 to 03:27 on 20 Oct (2.19) have no output in `logs/`, and the probe script is not in the repo. Add both, then rerun the probes with logs before their numbers are cited.
+13. **Board MAC.** The board's MAC is not in the repo. Add it from the board's first log line, so the station in 2.21 can be matched.

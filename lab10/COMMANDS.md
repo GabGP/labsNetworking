@@ -119,6 +119,13 @@ ssh root@your-router-ip "logread | grep -i hostapd | tail"
 # injected in our tests.
 ```
 
+If the router's own wpad has no WEP, run a WEP build from RAM. It is undone by `undo` or by a reboot. The Wi-Fi settings are not touched, so run `router/wifi-wep-test.sh` on the router afterwards. The WEP build is described in [router/wifi-wep-setup/README.md](router/wifi-wep-setup/README.md):
+
+```bash
+router/wifi-wep-setup/try-on-router.sh install <wpad>   # run from the laptop; <wpad> is the WEP build
+router/wifi-wep-setup/try-on-router.sh undo             # GL.iNet's wpad runs again
+```
+
 Restore WPA2 afterwards with the backup the script made:
 
 ```bash
@@ -166,3 +173,15 @@ sudo firewall-cmd --remove-rich-rule='rule family="ipv4" source address="192.168
 
 On the phone, on the WEP network, open `http://<laptop-LAN-address>:8000/big.bin`. Keep the
 phone connected for the whole capture.
+
+## 10. Make traffic for the IVs (the flood test)
+
+A flood from the laptop over the wired LAN also gives IVs, as long as a station is on the network (TESTS.md 2.9, 2.18). Start the capture first, and run one flood at a time: two floods at once mix frame sizes in the capture (2.17).
+
+```bash
+python3 scripts/broadcast_feed.py 192.168.8.255 300 600     # to every station on the LAN, 300 a second for 10 minutes
+python3 scripts/broadcast_feed.py <phone IP> 2000 120    # to one station's IP, 2,000 a second for 2 minutes
+python3 scripts/broadcast_feed.py -h                        # usage, and why the payload size matters
+```
+
+The ESP32-C3 keyless-station test is in [esp32c3-station/README.md](esp32c3-station/README.md).

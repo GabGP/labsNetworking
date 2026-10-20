@@ -32,16 +32,17 @@ The whole game is therefore **IVs per second**:
 
 | Card | Monitor mode | Injection | Role in this lab |
 |------|:---:|:---:|---|
-| Intel **AC8260** (`iwlwifi`, built-in) | ✅ | ⚠️ partial | Passive capture and scanning. Active on channel 1 since 10:22 on 18 Oct; failed for two hours before that (see below) |
-| Intel **3168NGW** (`iwlwifi`, 1x1, in the laptop from 18 Oct) | ✅ | ✅ on channels 1 and 6 | Passive capture recovered the WEP key on 19 Oct. Active replays: the AP drops the card within seconds, and the firmware stalls (TESTS.md, section 2.7). |
+| Intel **AC8260** (`iwlwifi`, built-in) | ✅ | ⚠️ partial | Passive capture and scanning; it recovered a key passively on 20 Oct (TESTS.md, section 2.19). Injected on channel 1 from 10:22 on 18 Oct until 19:41. On 20 Oct it failed with the antenna cable on chain 0 and passed from 01:54 with the cable on chain 1 (TESTS.md, section 2.19) |
+| Intel **3168NGW** (`iwlwifi`, 1x1; the card in the laptop as of 20 Oct) | ✅ | ✅ on channels 1 and 6 | Passive capture recovered the WEP key on 19 Oct and again on 20 Oct, both from the phone's download. Active replays: the AP drops the card within seconds, and the firmware stalls (TESTS.md, sections 2.7 and 2.20). |
 
 On 18 Oct 2026 the Intel AC8260 failed in every test from the 08:30 reboot until 10:22,
-and the cause is not known. Since 10:22 it has injected on channel 1 in every test (15 runs).
-It injected on channel 6 at 08:18 and 19:41. The 10:30 channel 6 test found no AP because the lab router was off.
+and the cause is not known. From 10:22 every channel 1 test passed until the channel 6 run at 19:41.
+The 10:30 channel 6 test found no AP because the lab router was off. On 20 Oct its runs failed with the
+cable on chain 0 and passed with it on chain 1 (TESTS.md, section 2.19).
 Test the target itself with `sudo ./scripts/injection-test.sh -i <iface> -c <channel> -b <AP_BSSID>`,
 and repeat it before relying on a card. Adapters such as an Atheros AR9271 USB or a MediaTek
 MT7921AU are often suggested for active mode. Neither has been tested in this lab. The spare
-Intel 3168NGW, the card in the laptop from 18 Oct, injected on channels 1 and 6 in 8 of 8 runs.
+Intel 3168NGW injected on channels 1 and 6 in 8 of 8 runs on 18 Oct, and on channel 6 in 4 of 4 runs on 20 Oct.
 
 On 17 Oct 2026 the Intel card above was replaced by a Realtek **RTL8723BE**
 (`rtl8723be`). It is a single-interface driver: `airmon-ng` switches `wlp2s0` itself
@@ -174,7 +175,7 @@ On the Intel card the cleanup waits 12 s before it removes the monitor interface
 
 | Symptom | Fix |
 |---|---|
-| `aireplay-ng --test` → "no answer / 0 APs" | Lock the card to the AP's channel first. `sudo ./scripts/injection-test.sh -i wlp2s0 -c N -b <AP_BSSID>` does that and prints the replies per AP. The AC8260 may not answer on some runs (see Hardware). |
+| `aireplay-ng --test` → "no answer / 0 APs" | Lock the card to the AP's channel first. `sudo ./scripts/injection-test.sh -i wlp2s0 -c N -b <AP_BSSID>` does that and prints the replies per AP. The AC8260 failed most runs on 19–20 Oct until its cable moved to the other connector (see Hardware). |
 | Script says injection failed and went passive | Expected when the card can't inject against the target. The AC8260 does this some of the time; passive capture still works. |
 | Fake-auth keeps failing | Set the GL AP to **Open** WEP (not Shared) for first practice; Shared-key needs a PRGA xorfile. |
 | `#Data` not climbing in active mode | You're probably not injecting — check the card, antenna, and that you're close to the AP. |
@@ -190,8 +191,10 @@ On the Intel card the cleanup waits 12 s before it removes the monitor interface
 
 ## Adversarial round (ESP32-C3)
 
-The second half of the grade is researching how **congestion / packet loss /
-availability attacks** degrade a rival's capture, **and which tools identify
-them**. The three ESP32-C3 Super Minis are the right tool for this (frame-based
-congestion + a packet-monitor/waterfall as a sensor). See separate notes.
-*(Frame-based congestion only — not RF noise jamming, which is illegal.)*
+The second half of the grade asks how **congestion, packet loss and availability
+attacks** change a capture, and which tools identify them. The research and the
+planned measurements are in [TESTS.md, section 4](TESTS.md#4-adversarial-and-physical-actions).
+The ESP32-C3 boards are used for the keyless-station test (TESTS.md, sections 2.21 and 5)
+and as a packet monitor. The congestion tests run only on our own router and our own
+devices, not on other participants' captures or the class router's shared traffic.
+RF noise jamming is out of scope: the lab rules say it is illegal.
