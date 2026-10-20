@@ -223,7 +223,7 @@ The laptop booted at 08:31. Every session from 08:47 to 09:59 failed, and the 10
 - **Run `logs/2026-10-19_102957_keyless/`:** channel 6, 10:29:59 to 10:30:49, no station. No WEP data frames (CSV `#IV` 0, 490 beacons).
 - **Run `logs/2026-10-19_103924_keyless/`:** channel 6, 10:39:26 to 10:43:44. The flood sent 300 broadcasts a second. The phone (`<phone MAC>`) was first seen at 10:40:11. The capture holds 62,952 WEP frames, 62,852 of them AP broadcasts: 14,245 in 10:40 (from 10:40:11), 17,803 in 10:41, 17,729 in 10:42 and 13,075 in 10:43. The key came out in this run too: aircrack wrote `keyless.key` at 10:43. Its value is not copied here.
 - **Reading:** with a station associated, the flood gives about 295 IVs a second, so 40,000 IVs take about 2.3 minutes. The phone download gave about 1,400 frames a second in 2.13 (55,342 frames in 40 seconds), so 40,000 IVs take about 30 seconds of download. On 19 Oct the router's link to the phone ran at 54 Mbit/s, which `iwinfo` expects to give 28.5 Mbit/s of throughput.
-- **Broadcast rate (not measured):** the router sets no multicast rate, so broadcasts most likely go out at the lowest basic rate, 1 Mbit/s. That would cap the flood, but a faster sender has not been tested.
+- **Broadcast rate (not measured):** the router's hostapd config sets basic rates of 6, 12 and 24 Mbit/s (`basic_rates=60 120 240`), so broadcasts most likely go out at 6 Mbit/s. An earlier note said 1 Mbit/s, which was wrong. The flood's ceiling is therefore much higher than the 300 a second tested here, but a faster sender has not been tested.
 
 ### 2.16 Unicast flood to the phone, 0-byte payload (19 Oct, passive)
 
