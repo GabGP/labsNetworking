@@ -13,9 +13,20 @@
 # Runs ON the router (BusyBox ash). From the host laptop connected to the LAN port:
 #   ssh root@your-router-ip "sh -s -- '<key1>' ['<key2>' ...]" < router/wifi-wep-test.sh
 #
-# Environment overrides can precede 'sh' inside the remote command string:
+# The redirect feeds this file to ssh, which passes it on stdin to 'sh -s'. Keys are the
+# arguments after '--'. Without it, a key that starts with '-' is read by sh as an option.
+#
+# Environment overrides must come before 'sh' in the remote command string. The remote shell
+# exports them to sh, and the script reads them from its environment. After 'sh' they are
+# arguments instead, so "SSID=Lab" is taken as a key and rejected:
 #   ssh root@your-router-ip "AUTH=open SSID=Test sh -s -- '12345'" < router/wifi-wep-test.sh
 #   ssh root@your-router-ip "AUTH=shared SLOT=2 sh -s -- '12345' '67890'" < router/wifi-wep-test.sh
+#
+# Firmware: GL.iNet's stock hostapd (wpad-openssl 2022-01-16-cff80b4f-18.2) was built without
+# WEP. With it, hostapd refuses the WEP config, the broadcast check fails, and the AP stays
+# down. router/wifi-wep-setup/try-on-router.sh runs a WEP-enabled wpad from RAM, and a reboot
+# removes it. The WEP settings are committed to flash, so after a reboot the AP stays down
+# until the WEP wpad is installed again or WPA2 is restored. See router/wifi-wep-setup/README.md.
 #
 # Keys:
 #   Provide 1 to 4 keys, mapped to slots 1–4 in order.
@@ -33,6 +44,8 @@
 #
 # Restore:
 #   A timestamped backup is saved to /root/wireless.<timestamp>.bak before changes.
+#   The script does not roll back. If the checks at the end fail, the router keeps the
+#   WEP settings until you restore them.
 #   Restore original configuration on the router with:
 #     cp /root/wireless.<timestamp>.bak /etc/config/wireless && wifi reload
 #
