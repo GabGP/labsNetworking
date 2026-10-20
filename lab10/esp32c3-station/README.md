@@ -21,6 +21,10 @@ pio device monitor      # serial log at 115200
 
 If the upload cannot connect, hold BOOT, tap RESET, release BOOT, and run the upload again.
 
+## Connection check
+
+Run this first, with no flood and no capture. Put the board within a metre of the router, flash it, and run `pio device monitor` for about a minute. The first lines show the board's MAC, its 802.11 protocol bitmap (1 = 11b, 2 = 11g, 4 = 11n) and its maximum TX power. Every 10 seconds the log shows the router's beacon signal, and whether the router has replied to the board. If the board still never connects, paste those lines.
+
 ## Test
 
 Keep the phone's Wi-Fi off. Before you start, the router should show no station:
@@ -55,6 +59,7 @@ To stop, press Ctrl-C in the flood and the board log, then Ctrl-C in the capture
 - Every 10 seconds the board log shows whether it is connected, the signal strength, and the data frames the access point sent since the last line, split into broadcast and unicast. The counts come from promiscuous mode, so they count frames heard on channel 6 from this BSSID.
 - Broadcast counts in the thousands per 10 seconds mean the access point sends the flood to the keyless station. The capture's per-minute table should show AP broadcasts too.
 - If the board never connects, its log shows the disconnect reason on each try. Paste those lines. WEP in station mode is deprecated, so the reason may show the driver refusing WEP.
+- While the board is not connected, the log also shows the router's last beacon signal and any replies or deauthentications the router has sent to the board. Zero replies means the router never answered. A signal near -85 dBm or weaker means the board hears the router only faintly.
 - If it connects and stays but gets no broadcasts, the access point needs more than a keyless association. That is a result too.
 
 Record the run in `TESTS.md` with the capture folder name.
