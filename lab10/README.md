@@ -87,12 +87,13 @@ Notes:
 - Each run gets its own folder under `logs/` (gitignored), named by the start time and the prefix, for example `2026-10-19_044700_cap_gl/`. It holds the capture, the CSV, the key, the attack output and the airmon log, so one run's files stay together.
 - On exit, including Ctrl-C, the script stops the monitor interface and restarts
   NetworkManager.
+- `-M <monitor>` (instead of `-i`) uses a monitor interface that is already up, such as the one `airodump.sh -i wlp2s0 -c <CH>` started. The card must already be on `-c`, or the run refuses to start. It neither starts nor stops that monitor and leaves it up on exit, so WiFi is restored by the run that owns the monitor. See [COMMANDS.md section 12.9](COMMANDS.md#129-a-crack-on-a-monitor-that-is-already-up-listens-only).
 
 ### `airodump.sh`
 
 Starts monitor mode and runs `airodump-ng` in the foreground, so the access
 points show in the terminal. Use it to find the BSSID and channel before
-`wep-crack.sh`. Ctrl-C stops it and restores WiFi. Its capture goes to a new folder
+`wep-crack.sh`. Ctrl-C stops it and restores WiFi. If another run uses its monitor (`wep-crack.sh -M`, `competition-deauth.sh -m`), stop it last, because its Ctrl-C ends that monitor for them too. Its capture goes to a new folder
 under `logs/`. It hops 2.4 GHz channels by default; `-B abg` adds 5 GHz. The 3168NGW's managed
 scan saw channel 36 on 18 Oct, so it sees 5 GHz too; its monitor-mode 5 GHz hop is
 untested (TESTS.md, section 2.3).

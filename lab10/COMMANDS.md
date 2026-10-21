@@ -52,6 +52,7 @@ sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap
 | Flag | Meaning | Default |
 |------|---------|---------|
 | `-i` | Wi-Fi interface | *(required)* |
+| `-M` | A monitor interface that is already up, instead of `-i`. This run neither starts nor stops it, and it stays up on exit. The card must already be on `-c` | *(none)* |
 | `-b` | Target AP BSSID | *(required)* |
 | `-c` | Channel the AP is on | *(required)* |
 | `-e` | AP ESSID (helps fake-auth on some APs) | *(none)* |
@@ -349,3 +350,32 @@ Do this while the crack from 12.7 step 1 runs, in a third terminal. It sends one
    tail -n 8 logs/<crack run folder>/cap_gl-fakeauth.txt
    ```
    Expect `Got a deauthentication packet! (Waiting 3 seconds)`, then about 3 s later `Sending Authentication Request (Open System)` and `Authentication successful`. If no `Got a deauthentication` line appears, the card does not hear its own frames, and this test says nothing about re-authentication.
+
+### 12.9 A crack on a monitor that is already up (listens only)
+
+`wep-crack.sh -M` joins a monitor that another run started, so the airodump, the crack and a later deauth can share one card. This run is passive, so it sends no frames. Run it on the GL router only.
+
+1. Terminal 1: start the monitor and leave it running. It stays on channel 6, because the crack checks that channel:
+   ```bash
+   sudo ./scripts/airodump.sh -i wlp2s0 -c 6
+   ```
+   Expect `[*] Monitor interface: wlp2s0mon`, then the access points, with the GL router among them.
+2. Terminal 2: the crack joins that monitor with `-M`, in passive mode:
+   ```bash
+   sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <GL BSSID> -c 6 -m passive -o shared_test
+   ```
+   Expect `[*] Using wlp2s0mon as it is, already in monitor mode.`, `[*] wlp2s0mon reports channel 6.`, `[*] Starting capture -> ...`, then lines with `IVs`. The table in terminal 1 keeps updating. No `airmon-ng` line appears, because this run starts no monitor.
+3. Terminal 3: the channel is still 6:
+   ```bash
+   iw dev wlp2s0mon info | awk '/channel/'
+   ```
+   Expect a line that starts `channel 6 (2437 MHz)`.
+4. Terminal 2, Ctrl-C. Expect `[*] Leaving wlp2s0mon in monitor mode: another run uses it.` Terminal 1 keeps running, and WiFi stays off, because airodump.sh still owns the card.
+5. Terminal 1, Ctrl-C. Expect `[*] Stopping monitor interface wlp2s0mon...` after about 12 seconds, and then WiFi comes back. Stop the owner last: its Ctrl-C ends the monitor for any run that still uses it.
+
+Two refusals stop before anything changes, so they are safe to try while the monitor is up on channel 6:
+```bash
+sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <GL BSSID> -c 11 -m passive
+sudo ./scripts/wep-crack.sh -i wlp2s0mon -b <GL BSSID> -c 6 -m passive
+```
+Expect `[!] wlp2s0mon reports channel '6', not 11. Nothing was changed.` for the first. For the second, expect `[!] wlp2s0mon is already in monitor mode, so nothing was changed.`, then `give it with -M`, then the `wifi-recover.sh` hint.

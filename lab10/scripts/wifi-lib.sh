@@ -49,6 +49,9 @@ new_run_dir() {
 # Type of an interface ("managed", "monitor", ...); empty if the interface doesn't exist.
 iface_type() { iw dev "$1" info 2>/dev/null | awk '$1=="type"{print $2}'; }
 
+# Channel that iw reports for an interface (e.g. 6); empty when it reports none.
+iface_channel() { iw dev "$1" info 2>/dev/null | awk '$1 == "channel" { print $2; exit }'; }
+
 # Stop before anything changes the card if the interface is not there. Lists the Wi-Fi
 # interfaces that are, since a renamed card is the usual reason.
 wifi_require_iface() {

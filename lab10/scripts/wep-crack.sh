@@ -16,9 +16,15 @@
 #
 # Usage:
 #   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N]
+#   sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N]
 #
 # Example:
 #   sudo ./scripts/wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
+#
+# -M takes a monitor interface that is already up, such as one that airodump.sh or
+# competition-deauth.sh -i started. This run neither starts nor stops it and does not change its
+# channel, so the card must already be on -c. The monitor stays up when this run exits, and the run
+# that started it stops it. Give -i or -M, not both.
 #
 # Monitor mode, the capture and the WiFi recovery come from wifi-lib.sh, the same
 # code that airodump.sh and injection-test.sh use. Cleanup runs on exit, including
@@ -35,6 +41,7 @@ source "$SCRIPT_DIR/wifi-lib.sh"
 
 # ---- defaults -------------------------------------------------------------
 IFACE=""
+MONIFACE=""              # -M: a monitor interface that is already up. This run uses it as it is
 BSSID=""
 CHANNEL=""
 ESSID=""
@@ -46,9 +53,10 @@ RETRY_SECS=3             # seconds between progress lines (airodump rewrites the
 STALL_SECS=60            # warn when no ARP ACK arrives for this long (active mode)
 MAX_FAKEAUTH_FAILS=3     # fake-auth relaunches in a row that never associate before the run stops
 
-while getopts ":i:b:c:e:m:o:t:h" opt; do
+while getopts ":i:M:b:c:e:m:o:t:h" opt; do
   case "$opt" in
     i) IFACE="$OPTARG" ;;
+    M) MONIFACE="$OPTARG" ;;
     b) BSSID="$OPTARG" ;;
     c) CHANNEL="$OPTARG" ;;
     e) ESSID="$OPTARG" ;;
@@ -62,10 +70,19 @@ done
 
 # ---- preflight ------------------------------------------------------------
 wifi_preflight airmon-ng airodump-ng aireplay-ng aircrack-ng iw ip nmcli systemctl tshark gawk
-[[ -n "$IFACE" && -n "$BSSID" && -n "$CHANNEL" ]] || usage
-[[ "$MODE" == "active" || "$MODE" == "passive" ]] || die "-m must be active|passive"
+[[ -n "$IFACE$MONIFACE" && -n "$BSSID" && -n "$CHANNEL" ]] || usage
+[[ -z "$IFACE" || -z "$MONIFACE" ]] || die "Give -i or -M, not both: -i starts monitor mode here, -M uses one that is up."
+[[ "$MODE" == "active" || "$MODE" == "passive" ]] || die "-m must be active|passive. For a monitor that is already up, use -M."
 [[ "$IV_TARGET" =~ ^[1-9][0-9]*$ ]] || die "-t must be a positive number of IVs"
-wifi_require_iface "$IFACE"
+if [[ -n "$MONIFACE" ]]; then
+  [[ "$(iface_type "$MONIFACE")" == monitor ]] ||
+    die "$MONIFACE is not in monitor mode, so nothing was changed. Check: iw dev. Or give -i to start monitor mode here."
+else
+  wifi_require_iface "$IFACE"
+  # This run stops the monitor on exit, so it refuses one that another run may still use.
+  [[ "$(iface_type "$IFACE")" != monitor ]] ||
+    die "$IFACE is already in monitor mode, so nothing was changed. If another run uses it, give it with -M. Otherwise restore WiFi first: ./scripts/wifi-recover.sh -i $IFACE"
+fi
 
 # ---- output location ------------------------------------------------------
 # Each run gets its own folder under logs/ (gitignored), so its capture, key and attack output
@@ -78,9 +95,20 @@ KEYFILE="${OUT}.key"
 echo "[*] Run folder: $RUNDIR"
 
 # ---- start capture --------------------------------------------------------
-wifi_guard "$IFACE"
-wifi_monitor_start "$IFACE"
-wifi_set_channel "$CHANNEL"
+wifi_guard "${IFACE:-$MONIFACE}"
+if [[ -n "$MONIFACE" ]]; then
+  # Another run owns this monitor. Set before anything else can exit, so the exit leaves it up.
+  WIFI_SHARED_MONITOR=1
+  MON=$MONIFACE
+  echo "[*] Using $MON as it is, already in monitor mode. This run does not start, stop or re-channel it."
+  # Checked before the capture starts: its airodump-ng -c would move the other run's card if the channel were wrong.
+  got_channel=$(iface_channel "$MON")
+  [[ "$got_channel" == "$CHANNEL" ]] || die "$MON reports channel '${got_channel:-none}', not $CHANNEL. Nothing was changed."
+  echo "[*] $MON reports channel $CHANNEL."
+else
+  wifi_monitor_start "$IFACE"
+  wifi_set_channel "$CHANNEL"
+fi
 
 echo "[*] Starting capture -> ${OUT}-01.cap (BSSID $BSSID, ch $CHANNEL)"
 airodump_start "$OUT" "$CHANNEL" "$BSSID" bg
@@ -218,7 +246,7 @@ stall_warned=0
 while true; do
   sleep "$RETRY_SECS"
   # A card reset or a stopped attack would otherwise leave the count frozen, so stop with the reason.
-  iw dev "$MON" info >/dev/null 2>&1 || die "$MON is gone: the card reset (see: sudo dmesg | tail -n 30)."
+  iw dev "$MON" info >/dev/null 2>&1 || die "$MON is gone: the card reset, or whatever started the monitor stopped it (see: sudo dmesg | tail -n 30)."
   if [[ "$MODE" == "active" ]]; then
     kill -0 "$arp_pid" 2>/dev/null || die "ARP replay stopped; see ${OUT}-arpreplay.txt"
     check_fakeauth
