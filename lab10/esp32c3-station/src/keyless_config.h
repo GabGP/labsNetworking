@@ -14,9 +14,10 @@
 #define KEYLESS_DEFAULT_CHANNEL 6
 /* 13 ASCII characters on purpose, and not the router's key. */
 #define KEYLESS_DEFAULT_KEY "wrongkey13chr"
-/* Transmit power at boot, in dBm. At full power (20 dBm) this board's joins failed in the lab: the
- * router never confirmed them. 8 dBm joined every time. The console's txpower command changes it. */
-#define KEYLESS_DEFAULT_TX_DBM 8
+/* Transmit power at boot, in dBm. Full power needs the 22 uF capacitor across 3V3 and GND: without
+ * it, joins at 20 dBm failed in the lab. Boards without the capacitor should use 8 dBm. The console's
+ * txpower command changes it. */
+#define KEYLESS_DEFAULT_TX_DBM 20
 
 typedef struct {
     char ssid[33];

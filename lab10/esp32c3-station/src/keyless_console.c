@@ -9,7 +9,7 @@
  *   channel <0-13>              channel, 0 scans every channel
  *   bssid <aa:bb:cc:dd:ee:ff>   lock to one access point, or: bssid any
  *   apply                       leave the network and join with these settings
- *   txpower <2-20>              max transmit power in dBm (the boot default is 8)
+ *   txpower <2-20>              max transmit power in dBm (the boot default is 20)
  *   pause                       hide the log lines so you can type a command
  *   resume                      show the log lines again
  */

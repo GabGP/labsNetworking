@@ -41,7 +41,7 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     }
     switch (id) {
     case WIFI_EVENT_STA_START: {
-        /* Set before the first connect: full power failed to join on this board. */
+        /* Set before the first connect, so the first join already uses the default power. */
         esp_err_t err = esp_wifi_set_max_tx_power(KEYLESS_DEFAULT_TX_DBM * 4);
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "could not set TX power: %s", esp_err_to_name(err));
