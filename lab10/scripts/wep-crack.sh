@@ -23,6 +23,7 @@
 # Monitor mode, the capture and the WiFi recovery come from wifi-lib.sh, the same
 # code that airodump.sh and injection-test.sh use. Cleanup runs on exit, including
 # Ctrl-C. If WiFi still stays dark, run ./scripts/wifi-recover.sh -i <iface>.
+# On exit it prints what the capture holds, minute by minute, and saves that as <prefix>-01-health.txt.
 #
 set -u
 
@@ -60,7 +61,7 @@ while getopts ":i:b:c:e:m:o:t:h" opt; do
 done
 
 # ---- preflight ------------------------------------------------------------
-wifi_preflight airmon-ng airodump-ng aireplay-ng aircrack-ng iw ip nmcli systemctl
+wifi_preflight airmon-ng airodump-ng aireplay-ng aircrack-ng iw ip nmcli systemctl tshark gawk
 [[ -n "$IFACE" && -n "$BSSID" && -n "$CHANNEL" ]] || usage
 [[ "$MODE" == "active" || "$MODE" == "passive" ]] || die "-m must be active|passive"
 [[ "$IV_TARGET" =~ ^[1-9][0-9]*$ ]] || die "-t must be a positive number of IVs"
@@ -83,6 +84,8 @@ wifi_set_channel "$CHANNEL"
 
 echo "[*] Starting capture -> ${OUT}-01.cap (BSSID $BSSID, ch $CHANNEL)"
 airodump_start "$OUT" "$CHANNEL" "$BSSID" bg
+REPORT_CAP="${OUT}-01.cap"
+REPORT_BSSID="$BSSID"
 sleep 4
 
 # ---- active injection -----------------------------------------------------

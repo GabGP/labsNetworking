@@ -18,11 +18,15 @@
 #   wifi_monitor_start "$IFACE"      # sets MON
 #   wifi_set_channel 6
 #   airodump_start "$RUNDIR/prefix" 6 "" bg
+#   REPORT_CAP="$RUNDIR/prefix-01.cap"   # optional: the capture-health table is printed on exit
+#   REPORT_BSSID="$BSSID"
 #
 WIFI_PIDS=()         # background processes stopped before the card is restored
 WIFI_KILLED=0        # 1 once airmon-ng check kill has stopped NetworkManager
 MON=""               # monitor interface, set by wifi_monitor_start
 TTY_STATE=""         # terminal settings saved by wifi_guard, put back on exit
+REPORT_CAP=""        # capture whose health table is printed on exit (set by a script that records one)
+REPORT_BSSID=""      # the AP that table counts (empty: every AP)
 
 die() { echo "[!] $*" >&2; exit 1; }
 
@@ -94,6 +98,8 @@ wifi_cleanup() {
   if [[ -t 1 ]]; then tput cnorm 2>/dev/null; fi
   echo; echo "[*] Cleaning up (Ctrl-C will not stop this)..."
   wifi_restore "$IFACE" "$MON"
+  # airodump-ng has stopped, so the capture is complete. WiFi is back, so the table can be printed.
+  if [[ -n "$REPORT_CAP" ]]; then report_capture_health "$REPORT_CAP" "$REPORT_BSSID"; fi
 }
 
 # Stop NetworkManager and wpa_supplicant, then put $1 into monitor mode. Sets MON to the
@@ -180,6 +186,88 @@ ap_summary() {
       ratio = substr($0, RSTART, RLENGTH); sub(/:.*/, "", ratio); gsub(/ /, "", ratio)
     }
     END { flush() }'
+}
+
+# What a capture holds, minute by minute: one row per minute and a total row. Columns:
+#   WEP_frames  data frames with the WEP bit set, each carrying an IV
+#   AP_bcast    of those, the frames the AP sent to the broadcast address
+#   retry%      the share of those frames flagged as retries
+#   deauth, disassoc, auth, assoc_req  the management frames of those types
+# Deauth, disassoc and auth frames carry the AP's address whoever sent them, so the counts show what
+# reached the air, not who sent it. A BSSID counts one AP; leave it empty to count every AP. The minutes
+# are on this machine's clock. Returns 1 with a message when the file is not a readable capture.
+capture_health() {
+  local cap=$1 bssid=${2:-} filter
+  if [[ ! -r "$cap" ]]; then echo "[!] Cannot read $cap" >&2; return 1; fi
+  if ! command -v tshark >/dev/null; then echo "[!] Missing: tshark (package wireshark-cli)" >&2; return 1; fi
+  if ! command -v gawk >/dev/null; then echo "[!] Missing: gawk (needs strftime and strtonum)" >&2; return 1; fi
+  if ! tshark -r "$cap" -c 1 >/dev/null 2>&1; then echo "[!] tshark cannot read $cap. Is it a capture file?" >&2; return 1; fi
+  if [[ -n "$bssid" ]]; then
+    [[ "${bssid^^}" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]] || { echo "[!] BSSID must look like 11:22:33:44:55:66" >&2; return 1; }
+    filter="wlan.bssid == ${bssid,,} && (wlan.fc.type == 0 || wlan.fc.type == 2)"
+  else
+    filter="wlan.fc.type == 0 || wlan.fc.type == 2"
+  fi
+  printf '%-6s %10s %9s %7s %7s %9s %6s %9s\n' minute WEP_frames AP_bcast retry% deauth disassoc auth assoc_req
+  tshark -r "$cap" -Y "$filter" -T fields -E separator='|' \
+    -e frame.time_epoch -e wlan.fc.type_subtype -e wlan.fc.protected -e wlan.fc.retry \
+    -e wlan.fc.fromds -e wlan.da 2>/dev/null |
+  gawk -F'|' '
+    # wlan.fc.type_subtype is type * 16 + subtype: below 16 is management, 32 to 47 is data.
+    # tshark prints the flags as True and False; 1 and 0 are accepted too.
+    function flag(v) { return v == "True" || v == "1" }
+    function row(name, f, b, r, d, da, a, q) {
+      printf "%-6s %10d %9d %6.1f%% %7d %9d %6d %9d\n", name, f, b, (f ? 100 * r / f : 0), d, da, a, q
+    }
+    {
+      if ($2 == "") next
+      matched++
+      minute = strftime("%H:%M", $1)
+      ts = strtonum($2)
+      if (ts < 16) {
+        if (ts == 12) deauth[minute]++
+        else if (ts == 10) disassoc[minute]++
+        else if (ts == 11) auth[minute]++
+        else if (ts == 0) assocreq[minute]++
+        else next
+      } else if (ts >= 32 && ts < 48 && flag($3)) {
+        frames[minute]++
+        if (flag($4)) retries[minute]++
+        if (flag($5) && tolower($6) == "ff:ff:ff:ff:ff:ff") bcast[minute]++
+      } else next
+      seen[minute] = 1
+    }
+    END {
+      if (matched == 0) {
+        print "[!] No 802.11 frames match. Check the BSSID and the capture." > "/dev/stderr"
+        exit 1
+      }
+      PROCINFO["sorted_in"] = "@ind_str_asc"
+      for (m in seen) {
+        row(m, frames[m], bcast[m], retries[m], deauth[m], disassoc[m], auth[m], assocreq[m])
+        tf += frames[m]; tb += bcast[m]; tr += retries[m]
+        td += deauth[m]; tda += disassoc[m]; ta += auth[m]; tq += assocreq[m]
+      }
+      row("total", tf, tb, tr, td, tda, ta, tq)
+    }'
+}
+
+# Prints the capture-health table of a capture to the terminal and saves the same text beside the
+# capture as <capture>-health.txt. Called on exit, after WiFi is back. Prints a note, not an error, when
+# there is no capture, so an exit before the first frame still ends cleanly.
+report_capture_health() {
+  local cap=$1 bssid=$2 table
+  if [[ ! -s "$cap" ]]; then
+    echo "[!] No capture at $cap, so there is no health table."
+    return 0
+  fi
+  if ! table=$(capture_health "$cap" "$bssid"); then
+    echo "[!] No health table for $cap (the reason is above)."
+    return 0
+  fi
+  echo
+  echo "[*] What the air showed (saved to ${cap%.cap}-health.txt):"
+  printf '%s\n' "$table" | tee "${cap%.cap}-health.txt"
 }
 
 # Put the card back in managed mode and let NetworkManager adopt it again. Safe to run on a
