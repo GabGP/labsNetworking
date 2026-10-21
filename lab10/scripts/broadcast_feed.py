@@ -12,6 +12,8 @@ import sys
 import tempfile
 import time
 
+PROGRESS_SECONDS = 5  # a progress line this often while sending
+
 
 class HelpOnErrorParser(argparse.ArgumentParser):
     # Show the full help, not only the usage line, when an argument is missing or wrong.
@@ -23,7 +25,7 @@ class HelpOnErrorParser(argparse.ArgumentParser):
 parser = HelpOnErrorParser(
     description="Sends UDP packets to port 9 at a fixed rate, for the IV test on our own router.\n"
     "Run one copy at a time: two at once mix frame sizes in the same capture and share the air.\n"
-    "Ctrl+C stops it early and prints how many packets were sent.",
+    "Prints a progress line every 5 s. Ctrl+C stops it early and prints how many packets were sent.",
     epilog="""examples:
   python3 scripts/broadcast_feed.py 192.168.8.255 300 600   all stations on the LAN, 300 a second, 600 s
   python3 scripts/broadcast_feed.py <station IP> 2000 120   one station, 2000 a second, 120 s
@@ -54,11 +56,18 @@ payload = b"\0" * size
 start = time.perf_counter()
 sent = 0
 interrupted = False
+next_report = PROGRESS_SECONDS
+print(f"sending {pps:g} packets a second to {addr} for {secs:g} s (Ctrl+C stops early)",
+      file=sys.stderr, flush=True)
 try:
     while True:
         now = time.perf_counter() - start
         if now >= secs:
             break
+        if now >= next_report:
+            print(f"{now:6.1f} s  sent {sent} of {round(pps * secs)} packets ({sent / now:.0f} per second)",
+                  file=sys.stderr, flush=True)
+            next_report = (int(now // PROGRESS_SECONDS) + 1) * PROGRESS_SECONDS
         if sent < now * pps:  # schedule from the start time, so the rate does not drift
             sock.sendto(payload, (addr, 9))
             sent += 1
