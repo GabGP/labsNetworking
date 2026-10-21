@@ -19,7 +19,7 @@ pio run -t upload       # flash over USB
 pio device monitor      # serial log at 115200
 ```
 
-If the upload cannot connect, hold BOOT, tap RESET, release BOOT, and run the upload again.
+If the upload cannot connect, hold BOOT, tap RESET, release BOOT, and run the upload again. After each upload, press RESET once: the upload skips its own reset (see `platformio.ini`), so the board runs the new firmware only after that press.
 
 ## Connection check
 
