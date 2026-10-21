@@ -56,8 +56,8 @@ sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap
 | `-b` | Target AP BSSID | *(required)* |
 | `-c` | Channel the AP is on | *(required)* |
 | `-e` | AP ESSID (helps fake-auth on some APs) | *(none)* |
-| `-m` | `active`, `passive`, `forge` (a forged ARP request, section 12.11) or `caffe` (caffe-latte against the client in `-C`, section 12.12) | `active` |
-| `-C` | Client MAC for `-m caffe`: one device connected to the AP, such as your phone on GL. Required for caffe, refused by the other modes. That client may be deauthenticated | *(none)* |
+| `-m` | `active`, `passive`, `forge` (a forged ARP request, section 12.11) or `caffe` (caffe-latte, section 12.12) | `active` |
+| `-C` | Client MAC for `-m forge`: the client the AP sends data to, such as your phone on GL. Required for forge, refused by the other modes | *(none)* |
 | `-o` | Output prefix; the files go to a new folder under `logs/` | `wepcap` |
 | `-t` | IVs gained before `aircrack-ng` runs again (first try at 40000) | `10000` |
 
@@ -414,45 +414,48 @@ Expect `[!] wlp2s0mon reports channel '6', not 11. Nothing was changed.` for the
 
 ### 12.11 Forged ARP request, mode forge (sends frames)
 
-Use this when the network sends no ARP request of its own, so active mode has nothing to copy. Run it on the GL router only. The fragment attack needs a data packet from the AP, and a download on a client gives one, so start the download first (section 9).
+Use this when the network sends no ARP request of its own, so active mode has nothing to copy. Run it on the GL router only. The fragment attack needs a frame that the AP relays to the client named with `-C`, so that client has to be transmitting: start a download on it first (section 9). The first runs on 21 Oct passed no `-C`, so the fragment step waited for a frame that could not match, and nothing was forged.
 
 1. Terminal 1: start the download on the phone (section 9), and leave it running. The laptop must reach the router by its LAN cable: the crack takes wlp2s0 out of Wi-Fi, so the download server has to run on the cable address.
 2. Terminal 2: the forge run. **This sends frames** to the GL router: fake auth, fragments and forged ARP requests.
    ```bash
-   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m forge -o forge_test
+   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m forge -C <phone MAC> -o forge_test
    ```
-   Expect, in order: `[*] Associating with AP (fake auth)...`, `[*] Target answered x/y probes.`, `[*] Fragment attack: waiting up to 120 s for a data packet from <GL BSSID>...`, `[*] Keystream saved to .../fragment-....xor`, `[*] ARP request forged from the keystream: .../forged-arp.cap`, `[*] Replaying the forged ARP request to pump IVs...`, then lines with `IVs` that rise, and `TX` counts. The fragment step prints nothing until it finishes, so it can take a while. If you see `Falling back to PASSIVE capture`, the injection test failed and nothing was forged. If `FW resets` climbs, the card is resetting under the replay (the 3168 did this on 21 Oct), and the run ends with `is gone`.
+   Expect, in order: `[*] Associating with AP (fake auth)...`, `[*] Target answered x/y probes.`, `[*] Fragment attack: waiting up to 120 s for a frame the AP relays to <phone MAC>...`, `[*] Keystream saved to .../fragment-....xor`, `[*] ARP request forged from the keystream: .../forged-arp.cap`, `[*] Replaying the forged ARP request to pump IVs...`, then lines with `IVs` that rise, and `TX` counts. The fragment step prints nothing until it finishes, so it can take a while. If you see `Falling back to PASSIVE capture`, the injection test failed and nothing was forged. If `FW resets` climbs, the card is resetting under the replay (the 3168 did this on 21 Oct), and the run ends with `is gone`.
 3. Terminal 3: the two logs, in the run folder that terminal 2 printed (`logs/<run folder>`):
    ```bash
    grep -a "Saving keystream" logs/<run folder>/forge_test-fragment.txt
    grep -a "Wrote packet" logs/<run folder>/forge_test-forge.txt
    ```
-   Expect one line from each. If the first is missing, the fragment attack found no usable packet. Read `forge_test-fragment.txt`, and run again during a download. Ctrl-C in terminal 2 stops the run.
+   Expect one line from each. If the first is missing, the fragment attack found no frame to use. Read `forge_test-fragment.txt`, check `-C`, and run again while the phone downloads. Ctrl-C in terminal 2 stops the run.
 
-### 12.12 Caffe-latte against one client, mode caffe (sends frames)
+### 12.12 Caffe-latte, mode caffe (listens, replays an ARP)
 
-Caffe-latte works from one connected client, and the aireplay-ng man page says it needs no AP traffic. This flow is not verified on this machine: the attack may deauthenticate that client, so the phone can drop and reconnect. Run it on the GL router only, with your phone as `-C`.
+Caffe-latte needs no client address. The aireplay-ng 1.7 source reads the AP (`-b`) and never reads `-c`, and it sends no deauthentication. It listens, and it replays a broadcast ARP frame when a client sends one. On 21 Oct, with the phone downloading, the key came from the phone's traffic, and the replay found no ARP frame, so caffe acted like passive mode. Run it on the GL router only.
 
 First, the refusals. They stop before the card is touched, and no run folder is made:
 
 ```bash
-sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m caffe
-sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m forge -C 11:22:33:44:55:66
+sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m forge
+sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m caffe -C 11:22:33:44:55:66
 ```
 
-Expect `[!] -m caffe needs -C <client MAC>: ...` for the first, and `[!] -C is only used by -m caffe.` for the second.
+Expect `[!] -m forge needs -C <client MAC>: ...` for the first, and `[!] -C is only used by -m forge.` for the second.
 
-1. Connect the phone to the GL router, and find its address on the router as in 12.4.
-2. The run. **This sends frames to the phone, and may deauthenticate it.**
+1. Connect the phone to the GL router, and start a download on it (section 9).
+2. The run. **This sends frames** (fake auth, and the replay when an ARP comes).
    ```bash
-   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m caffe -C <phone MAC> -o caffe_test
+   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m caffe -o caffe_test
    ```
-   Expect `[*] Associating with AP (fake auth)...`, `[*] Target answered x/y probes.`, `[*] Caffe-latte against client <phone MAC>: it may deauthenticate that client, so it can drop and reconnect.`, then lines with `IVs`.
-3. If the run ends at once with `Replay stopped; see .../caffe_test-replay.txt`, read that file. An error such as `Please specify ...` means the flags need a change, and that line is what to send back. Ctrl-C stops a run that works.
+   Expect `[*] Associating with AP (fake auth)...`, `[*] Target answered x/y probes.`, `[*] Caffe-latte: no client address needed. It replays a client's broadcast ARP when one comes.`, then lines with `IVs` and `ARP req`. With a download running, `IVs` climbs. `ARP req` stays 0 until a client sends a broadcast ARP.
+3. The replay part. While the run goes, turn the phone's Wi-Fi off and back on. When it gets its address again, it may send a broadcast ARP. Then `ARP req` rises above 0, and the `replay_arp-*.cap` in the run folder grows past its 24-byte header. If nothing changes, the phone sent no ARP, which is not a failure of caffe.
+4. If the run ends at once with `Replay stopped; see .../caffe_test-replay.txt`, read that file. An error such as `Please specify ...` means the flags need a change, and that line is what to send back. Ctrl-C stops a run that works.
 
 ### 12.13 Deauth reason code (dry run, then sends frames)
 
 The reason code is the number that aireplay-ng puts in each deauthentication frame. Without `--deauth-rc`, it is 7. The dry run shows the code and sends nothing.
+
+The codes are IEEE 802.11 reason codes. iPXE lists their names, from IEEE 802.11-2007, and the words here are paraphrases: 1 unspecified, 2 previous authentication no longer valid, 3 the sender is leaving the network, 4 inactivity, 6 class 2 frame from an unauthenticated station, 7 class 3 frame from an unassociated station, 8 the sender is leaving to roam. On 21 Oct the GL router sent 222 and 244 reason-7 deauthentications in the first minute of the two caffe runs. Nothing found says how phones react to each code, so this test is the only evidence.
 
 1. The plan with a code, and no frames:
    ```bash

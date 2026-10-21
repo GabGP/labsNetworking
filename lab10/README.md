@@ -89,8 +89,8 @@ Notes:
 - On exit, including Ctrl-C, the script stops the monitor interface and restarts
   NetworkManager.
 - `-M <monitor>` (instead of `-i`) uses a monitor interface that is already up, such as the one `airodump.sh -i wlp2s0 -c <CH>` started. The card must already be on `-c`, or the run refuses to start. It neither starts nor stops that monitor and leaves it up on exit, so WiFi is restored by the run that owns the monitor. See [COMMANDS.md section 12.9](COMMANDS.md#129-a-crack-on-a-monitor-that-is-already-up-listens-only).
-- `-m forge` is active mode with a forged ARP request, for a network that sends no ARP request of its own. A fragment attack takes a keystream from one data packet the AP sends, `packetforge-ng` builds an ARP request from it, and `aireplay-ng --interactive` replays that. It waits up to 120 s for the data packet. See [COMMANDS.md section 12.11](COMMANDS.md#1211-forged-arp-request-mode-forge-sends-frames).
-- `-m caffe -C <client MAC>` runs caffe-latte against one connected client, such as your phone on GL. That client may be deauthenticated, so it can drop and reconnect. See [COMMANDS.md section 12.12](COMMANDS.md#1212-caffe-latte-against-one-client-mode-caffe-sends-frames).
+- `-m forge -C <client MAC>` is active mode with a forged ARP request, for a network that sends no ARP request of its own. A fragment attack takes a keystream from a frame the AP relays to that client, `packetforge-ng` builds an ARP request from it, and `aireplay-ng --interactive` replays that. It waits up to 120 s. See [COMMANDS.md section 12.11](COMMANDS.md#1211-forged-arp-request-mode-forge-sends-frames).
+- `-m caffe` runs aireplay-ng's caffe-latte. It needs no client address and sends no deauthentication: it listens, and it replays a broadcast ARP frame when a client sends one. Until then, the IVs come from the client's traffic, as in passive mode. See [COMMANDS.md section 12.12](COMMANDS.md#1212-caffe-latte-mode-caffe-listens-replays-an-arp).
 
 ### `airodump.sh`
 
