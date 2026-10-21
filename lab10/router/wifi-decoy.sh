@@ -22,16 +22,16 @@
 #
 # Usage:
 #   ssh root@<glinet-ip> "sh -s -- --decoy-farm -c <CHANNEL> [-k <KEY>] [-s <SSID>] [-n 3] [--hidden] [--flood]" < router/wifi-decoy.sh
-#   ssh root@<glinet-ip> "sh -s -- --evil-twin -b <BSSID> -c <CHANNEL> [-k <KEY>] [-s <SSID>] [--hidden] [--my-channel 11]" < router/wifi-decoy.sh
+#   ssh root@<glinet-ip> "sh -s -- --evil-twin -b <BSSID> [-c <TARGET_CH> | --my-channel <CH>] [-k <KEY>] [-s <SSID>] [--hidden]" < router/wifi-decoy.sh
 #   ssh root@<glinet-ip> "sh -s -- --restore" < router/wifi-decoy.sh
 #
 #   -s  SSID to mimic (default: Test)
-#   -c  the target AP's channel
+#   -c  the target AP's channel (required for --decoy-farm; used by --evil-twin to auto-pick a non-colliding channel)
 #   -k  WEP key for the decoy or rogue APs (default: randomized per AP "wrong_AP_<hex>")
 #   -b  BSSID of the target AP (required for --evil-twin; optional for --decoy-farm)
 #   -n  number of decoy APs to create, 1 to 8 (default: 3)
 #   --hidden      hide the SSID in beacon frames (option hidden 1)
-#   --my-channel  channel for the rogue AP under --evil-twin (default: 11 if target is not 11, else 1)
+#   --my-channel  specific channel for rogue AP under --evil-twin (default: 11 if target is not 11, else 1)
 #   --flood       send broadcast packets on the LAN to pump IVs (needs an associated station)
 #
 # Broadcasts only become WEP IVs over the air if a station is associated to an AP. For
@@ -78,16 +78,16 @@ up /etc/config/wireless to /root/wireless-decoy.bak; --restore rolls it back.
 
 Usage:
   ssh root@<glinet-ip> "sh -s -- --decoy-farm -c <CHANNEL> [-k <KEY>] [-s <SSID>] [-n 3] [--hidden] [--flood]" < router/wifi-decoy.sh
-  ssh root@<glinet-ip> "sh -s -- --evil-twin -b <BSSID> -c <CHANNEL> [-k <KEY>] [-s <SSID>] [--hidden] [--my-channel 11]" < router/wifi-decoy.sh
+  ssh root@<glinet-ip> "sh -s -- --evil-twin -b <BSSID> [-c <TARGET_CH> | --my-channel <CH>] [-k <KEY>] [-s <SSID>] [--hidden]" < router/wifi-decoy.sh
   ssh root@<glinet-ip> "sh -s -- --restore" < router/wifi-decoy.sh
 
   -s  SSID to mimic (default: Test)
-  -c  the target AP's channel
+  -c  the target AP's channel (required for --decoy-farm; used by --evil-twin to auto-pick a non-colliding channel)
   -k  WEP key for the decoy or rogue APs (default: randomized per AP "wrong_AP_<hex>")
   -b  BSSID of the target AP (required for --evil-twin; optional for --decoy-farm)
   -n  number of decoy APs to create, 1 to 8 (default: 3)
   --hidden      hide the SSID in beacon frames (option hidden 1)
-  --my-channel  channel for the rogue AP under --evil-twin (default: 11 if target is not 11, else 1)
+  --my-channel  specific channel for rogue AP under --evil-twin (default: 11 if target is not 11, else 1)
   --flood       send broadcast packets on the LAN to pump IVs (needs an associated station)
 
 Broadcasts only become WEP IVs over the air if a station is associated to an AP. For
@@ -155,8 +155,6 @@ if [ "$MODE" = "restore" ]; then
 fi
 
 [ -n "$MODE" ] || die "mode required: --decoy-farm or --evil-twin (try --help)"
-[ -n "$CHANNEL" ] || die "-c <target-channel> is required (channel 1-14)"
-is_chan "$CHANNEL" || die "-c must be a channel number between 1 and 14 (got '$CHANNEL')"
 
 if [ -z "$SSID" ]; then
   SSID="Test"
@@ -179,15 +177,30 @@ case "$MODE" in
   evil-twin)
     [ -n "$TARGET_BSSID" ] || die "-b <TARGET_BSSID> is required for --evil-twin"
     is_mac "$TARGET_BSSID" || die "-b is not a valid BSSID: $TARGET_BSSID"
+
     if [ -n "$MY_CHANNEL" ]; then
       is_chan "$MY_CHANNEL" || die "--my-channel must be a channel number between 1 and 14 (got '$MY_CHANNEL')"
       EVIL_CH="$MY_CHANNEL"
-    else
+      if [ -n "$CHANNEL" ]; then
+        is_chan "$CHANNEL" || die "-c must be a channel number between 1 and 14 (got '$CHANNEL')"
+      fi
+    elif [ -n "$CHANNEL" ]; then
+      is_chan "$CHANNEL" || die "-c must be a channel number between 1 and 14 (got '$CHANNEL')"
+      # Auto-select an alternate channel far from the target channel
       if [ "$CHANNEL" != "11" ]; then EVIL_CH=11; else EVIL_CH=1; fi
+    else
+      die "either -c <target-channel> or --my-channel <channel> is required for --evil-twin"
+    fi
+
+    if [ -n "$CHANNEL" ] && [ "$CHANNEL" = "$EVIL_CH" ]; then
+      echo "wifi-decoy: warning: running evil twin on the same channel ($CHANNEL) as the target will pollute your own capture too" >&2
     fi
     ACTIVE_CH="$EVIL_CH"
     ;;
   decoy-farm)
+    [ -n "$CHANNEL" ] || die "-c <channel> is required for --decoy-farm (channel 1-14)"
+    is_chan "$CHANNEL" || die "-c must be a channel number between 1 and 14 (got '$CHANNEL')"
+
     if [ -n "$TARGET_BSSID" ]; then
       is_mac "$TARGET_BSSID" || die "-b is not a valid BSSID: $TARGET_BSSID"
     fi
