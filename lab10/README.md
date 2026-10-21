@@ -74,11 +74,12 @@ The laptop scripts are in `scripts/`. The router script is in `router/`.
    card into monitor mode.
 2. Locks the monitor interface to the AP's channel and starts `airodump-ng` on
    the BSSID, writing `<prefix>-01.cap` and `<prefix>-01.csv` in the run folder.
-3. **Active mode only:** runs the injection test against the target BSSID and
+3. **Active, forge and caffe modes:** runs the injection test against the target BSSID and
    saves the output to `<prefix>-injection.txt` in the run folder. If the target does not
    answer, it switches to passive mode, so it never silently does nothing. If the
-   target answers, it starts fake-auth and ARP replay.
-4. Every 3 s it prints the IV count, the IV rate and, in active mode, the ARP replay counters. Once there are at least 40,000 IVs it runs `aircrack-ng` in the background, then again each time the count grows by `-t` (default 10,000). A try that finds the key takes under a second; a failed one stops at its 10 s cap, and the progress lines keep running meanwhile.
+   target answers, it starts fake-auth and the replay: ARP replay (active), a forged ARP
+   request (forge), or caffe-latte (caffe).
+4. Every 3 s it prints the IV count, the IV rate and, in the active modes, the replay counters. Once there are at least 40,000 IVs it runs `aircrack-ng` in the background, then again each time the count grows by `-t` (default 10,000). A try that finds the key takes under a second; a failed one stops at its 10 s cap, and the progress lines keep running meanwhile.
 5. When the key is found, it prints the key in ASCII and hex, writes `<prefix>.key` (26 hex digits, as aircrack-ng writes it), and cleans up.
 6. On exit, after WiFi is back, it prints the capture-health table for its capture and saves it as `<prefix>-01-health.txt` (see [Capture health](#capture-health)).
 
@@ -88,6 +89,8 @@ Notes:
 - On exit, including Ctrl-C, the script stops the monitor interface and restarts
   NetworkManager.
 - `-M <monitor>` (instead of `-i`) uses a monitor interface that is already up, such as the one `airodump.sh -i wlp2s0 -c <CH>` started. The card must already be on `-c`, or the run refuses to start. It neither starts nor stops that monitor and leaves it up on exit, so WiFi is restored by the run that owns the monitor. See [COMMANDS.md section 12.9](COMMANDS.md#129-a-crack-on-a-monitor-that-is-already-up-listens-only).
+- `-m forge` is active mode with a forged ARP request, for a network that sends no ARP request of its own. A fragment attack takes a keystream from one data packet the AP sends, `packetforge-ng` builds an ARP request from it, and `aireplay-ng --interactive` replays that. It waits up to 120 s for the data packet. See [COMMANDS.md section 12.11](COMMANDS.md#1211-forged-arp-request-mode-forge-sends-frames).
+- `-m caffe -C <client MAC>` runs caffe-latte against one connected client, such as your phone on GL. That client may be deauthenticated, so it can drop and reconnect. See [COMMANDS.md section 12.12](COMMANDS.md#1212-caffe-latte-against-one-client-mode-caffe-sends-frames).
 
 ### `airodump.sh`
 
@@ -175,6 +178,8 @@ Deauthenticates clients on one network, during the official evaluation window on
 - **With `-x logs/own-devices.txt`:** each round reads the run's own capture and makes one call per client it lists on the AP, except the MACs in that file (your own devices). The list is read again every round, so a client that joins later is reached on the next round. Nothing is broadcast. See [COMMANDS.md section 12.10](COMMANDS.md#1210-deauth-to-the-other-clients-only-sends-frames).
 
 `-M <monitor>` takes the place of `-i`, for a monitor interface that a crack already started (`wlp2s0mon` for `wep-crack.sh`), so a round can run during the crack. This run neither starts nor stops that monitor, nor changes its channel, and leaves it up on exit. Use `-i` otherwise: it starts monitor mode and restores WiFi on exit. See [COMMANDS.md section 12.7](COMMANDS.md#127-deauth-during-a-crack-sends-frames).
+
+`--deauth-rc N` sets the reason code of each deauthentication frame, 0 to 254. Without it, aireplay-ng uses 7. See [COMMANDS.md section 12.13](COMMANDS.md#1213-deauth-reason-code-dry-run-then-sends-frames).
 
 Required: `-i` or `-M`, `-b`, `-c` and `--in-window`. `-u HH:MM` is optional: with it, the run stops when the window
 closes. You type START at the prompt. `--dry-run`
