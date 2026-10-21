@@ -1,7 +1,7 @@
 /*
  * Serial console, built on the ESP-IDF console (a REPL) over the USB serial port. Type a command and
- * press Enter; the board answers on the same port. Settings only take effect after apply. Each
- * command also has a one-letter short form, shown first below.
+ * press Enter; the board answers on the same port. Settings take effect after apply, but txpower
+ * takes effect at once. Each command also has a one-letter short form, shown first below.
  *
  *   h   help                        list the commands
  *   s   status                      the settings, and whether the station is joined
@@ -10,7 +10,7 @@
  *   c   channel <0-13>              channel, 0 scans every channel
  *   b   bssid <aa:bb:cc:dd:ee:ff>   lock to one access point, or: bssid any
  *   a   apply                       leave the network and join with these settings
- *   t   txpower <2-20>              max transmit power in dBm (the boot default is 20)
+ *   t   txpower <2-20>              transmit power once joined, in dBm (the default is 20)
  *   p   pause                       hide the log lines so you can type a command
  *   r   resume                      show the log lines again
  */
@@ -20,7 +20,6 @@
 #include "esp_console.h"
 #include "esp_err.h"
 #include "esp_log.h"
-#include "esp_wifi.h"
 #include "keyless_console.h"
 #include "keyless_wifi.h"
 
@@ -39,9 +38,7 @@ static int cmd_status(int argc, char **argv)
     }
     printf(", key of %u characters, %s\n", (unsigned)strlen(s_cfg->key),
            keyless_wifi_connected() ? "joined" : "not joined");
-    int8_t max_power = 0;
-    esp_wifi_get_max_tx_power(&max_power);
-    printf("max TX power %d quarter dBm\n", max_power);
+    printf("max TX power %d quarter dBm\n", keyless_wifi_tx_dbm() * 4);
     return 0;
 }
 
@@ -121,12 +118,12 @@ static int cmd_txpower(int argc, char **argv)
         printf("usage: txpower <2-20 dBm>\n");
         return 1;
     }
-    esp_err_t err = esp_wifi_set_max_tx_power((int8_t)(dbm * 4));
+    esp_err_t err = keyless_wifi_set_tx_dbm(dbm);
     if (err != ESP_OK) {
         printf("could not set TX power: %s\n", esp_err_to_name(err));
         return 1;
     }
-    printf("max TX power set to %d dBm, type apply to rejoin\n", dbm);
+    printf("max TX power set to %d dBm\n", dbm);
     return 0;
 }
 
@@ -171,7 +168,7 @@ static const esp_console_cmd_t s_commands[] = {
     { .command = "key", .help = "[k] set the WEP key, 5 or 13 characters (never printed back)", .func = &cmd_key },
     { .command = "channel", .help = "[c] set the channel, 0-13 (0 scans every channel)", .func = &cmd_channel },
     { .command = "bssid", .help = "[b] lock to one AP (aa:bb:cc:dd:ee:ff) or 'bssid any'", .func = &cmd_bssid },
-    { .command = "txpower", .help = "[t] set the max transmit power in dBm, 2-20", .func = &cmd_txpower },
+    { .command = "txpower", .help = "[t] set the transmit power once joined, in dBm, 2-20", .func = &cmd_txpower },
     { .command = "apply", .help = "[a] leave the network and join with the current settings", .func = &cmd_apply },
     { .command = "pause", .help = "[p] hide the log lines so you can type a command", .func = &cmd_pause },
     { .command = "resume", .help = "[r] show the log lines again", .func = &cmd_resume },

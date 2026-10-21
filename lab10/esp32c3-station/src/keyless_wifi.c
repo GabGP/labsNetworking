@@ -20,6 +20,8 @@ static volatile uint32_t s_disconnects;
 /* True while apply changes the settings, so a retry does not start in the middle of it. */
 static volatile bool s_applying;
 static esp_timer_handle_t s_retry_timer;
+/* The transmit power once joined, in dBm. A join uses the join power, or this if that is lower. */
+static volatile int s_run_tx_dbm = KEYLESS_DEFAULT_TX_DBM;
 
 /* Turns the settings into the driver's config. The threshold is WEP, so the station joins this
  * WEP network and never falls back to WPA2. */
@@ -35,6 +37,20 @@ static void build_wifi_config(const keyless_sta_config_t *cfg, wifi_config_t *ou
     out->sta.threshold.authmode = WIFI_AUTH_WEP;
     out->sta.pmf_cfg.capable = false;
     out->sta.pmf_cfg.required = false;
+}
+
+/* The power for joining: the join power, or the run power if that is lower. */
+static int join_tx_dbm(void)
+{
+    return s_run_tx_dbm < KEYLESS_JOIN_TX_DBM ? s_run_tx_dbm : KEYLESS_JOIN_TX_DBM;
+}
+
+static void apply_tx_dbm(int dbm)
+{
+    esp_err_t err = esp_wifi_set_max_tx_power((int8_t)(dbm * 4));
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "could not set TX power: %s", esp_err_to_name(err));
+    }
 }
 
 /* Starts the try queued after a failed join. */
@@ -54,17 +70,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     }
     switch (id) {
     case WIFI_EVENT_STA_START: {
-        /* Set before the first connect, so the first join already uses the default power. */
-        esp_err_t err = esp_wifi_set_max_tx_power(KEYLESS_DEFAULT_TX_DBM * 4);
-        if (err != ESP_OK) {
-            ESP_LOGW(TAG, "could not set TX power: %s", esp_err_to_name(err));
-        }
+        /* Set before the first connect, so the first join already uses the join power. */
+        apply_tx_dbm(join_tx_dbm());
         esp_wifi_connect();
         break;
     }
     case WIFI_EVENT_STA_CONNECTED: {
         const wifi_event_sta_connected_t *e = data;
         s_connected = true;
+        /* Joined, so the station raises to the run power. */
+        apply_tx_dbm(s_run_tx_dbm);
         keyless_monitor_set_bssid(e->bssid);
         /* Promiscuous mode is turned on only now, after the join. */
         keyless_monitor_enable();
@@ -76,6 +91,8 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
     case WIFI_EVENT_STA_DISCONNECTED: {
         const wifi_event_sta_disconnected_t *e = data;
         s_connected = false;
+        /* Back to the join power for the next try. */
+        apply_tx_dbm(join_tx_dbm());
         keyless_monitor_disable();
         s_last_reason = e->reason;
         s_disconnects++;
@@ -132,6 +149,8 @@ esp_err_t keyless_wifi_apply(const keyless_sta_config_t *cfg)
     wifi_config_t wifi_cfg;
     build_wifi_config(cfg, &wifi_cfg);
     s_applying = true;
+    /* Leaves at the join power. A disconnect frame sent at full power did not reach the AP in tests. */
+    apply_tx_dbm(join_tx_dbm());
     /* Drops a queued retry, so apply's own try is the only one. */
     esp_timer_stop(s_retry_timer);
     keyless_monitor_disable();
@@ -146,6 +165,17 @@ esp_err_t keyless_wifi_apply(const keyless_sta_config_t *cfg)
     }
     s_applying = false;
     return err;
+}
+
+esp_err_t keyless_wifi_set_tx_dbm(int dbm)
+{
+    s_run_tx_dbm = dbm;
+    return esp_wifi_set_max_tx_power((int8_t)((s_connected ? dbm : join_tx_dbm()) * 4));
+}
+
+int keyless_wifi_tx_dbm(void)
+{
+    return s_run_tx_dbm;
 }
 
 void keyless_wifi_retry(void)

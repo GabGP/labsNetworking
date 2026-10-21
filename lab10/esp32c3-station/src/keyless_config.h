@@ -14,10 +14,12 @@
 #define KEYLESS_DEFAULT_CHANNEL 6
 /* 13 ASCII characters on purpose, and not the router's key. */
 #define KEYLESS_DEFAULT_KEY "wrongkey13chr"
-/* Transmit power at boot, in dBm. Full power needs the 22 uF capacitor across 3V3 and GND: without
- * it, joins at 20 dBm failed in the lab. Boards without the capacitor should use 8 dBm. The console's
- * txpower command changes it. */
+/* Transmit power once joined, in dBm. Full power needs the 22 uF capacitor across 3V3 and GND.
+ * Boards without the capacitor should use 8 dBm. The console's txpower command changes it. */
 #define KEYLESS_DEFAULT_TX_DBM 20
+/* Transmit power while joining, in dBm. Joins at 20 dBm often stalled in the lab, and joins at 8
+ * dBm did not. The board joins at this power and raises to KEYLESS_DEFAULT_TX_DBM once joined. */
+#define KEYLESS_JOIN_TX_DBM 8
 /* Wait after a failed join before the next try, in milliseconds. */
 #define KEYLESS_RETRY_MS 2000
 
