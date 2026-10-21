@@ -118,6 +118,11 @@ done
 
 is_mac() { case "$1" in *[!0-9A-Fa-f:]*) return 1;; esac; [ "$(printf '%s' "$1" | tr -d ':' | wc -c)" -eq 12 ]; }
 is_chan() { case "$1" in ''|*[!0-9]*) return 1;; esac; [ "$1" -ge 1 ] && [ "$1" -le 14 ]; }
+rand_mac() {
+  b0=$(printf '%02x' $(( ($(head -c 1 /dev/urandom 2>/dev/null | hexdump -e '1/1 "%u"') & 0xfc) | 0x02 )))
+  rest=$(head -c 5 /dev/urandom 2>/dev/null | hexdump -e '5/1 ":%02x"')
+  echo "${b0}${rest}"
+}
 wep_key() {
   case ${#1} in
     5|13) echo "s:$1" ;;
@@ -235,11 +240,12 @@ case "$MODE" in
     uci set "wireless.$RADIO.disabled=0"
     uci set "wireless.$RADIO.channel=$CHANNEL"
 
-    # Multiple APs on ath9k: omit macaddr so mac80211 auto-allocates valid BSSIDs
-    # conforming to the hardware mask without crashing the driver.
+    # Generate distinct, randomized BSSIDs for each decoy AP so they do not share
+    # the hardware base MAC or look like an obvious clone cluster.
     d=1
     while [ "$d" -le "$NDECOYS" ]; do
       sec="decoy${d}"
+      mac=$(rand_mac)
       uci set "wireless.$sec=wifi-iface"
       uci set "wireless.$sec.device=$RADIO"
       uci set "wireless.$sec.network=lan"
@@ -247,13 +253,14 @@ case "$MODE" in
       uci set "wireless.$sec.disabled=0"
       uci set "wireless.$sec.hidden=$HIDDEN"
       uci set "wireless.$sec.ssid=$SSID"
+      uci set "wireless.$sec.macaddr=$mac"
       uci set "wireless.$sec.encryption=wep-open"
       uci set "wireless.$sec.key=1"
       uci set "wireless.$sec.key1=$WEPKEY"
       d=$((d + 1))
     done
     uci commit wireless
-    echo "wifi-decoy: $NDECOYS decoy APs configured on $RADIO ch $CHANNEL, SSID '$SSID' (hidden=$HIDDEN), key '$KEY'"
+    echo "wifi-decoy: $NDECOYS decoy APs configured on $RADIO ch $CHANNEL with randomized BSSIDs, SSID '$SSID' (hidden=$HIDDEN), key '$KEY'"
     ;;
 esac
 
