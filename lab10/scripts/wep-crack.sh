@@ -102,8 +102,9 @@ if [[ "$MODE" == "active" ]]; then
   fi
 fi
 
-# aireplay-ng re-authenticates by itself after a deauth (it pauses 3 s), so fake auth exits
-# when it gives up or the card drops out. check_fakeauth relaunches it.
+# aireplay-ng re-authenticates by itself after a deauth aimed at this card (a 3 s pause). It
+# ignores broadcast deauths. A disassoc re-authenticates at once, so its "3 seconds" is no real pause.
+# The process exits only on errors, such as the monitor going down. check_fakeauth relaunches it then.
 fakeauth_restarts=0
 fakeauth_fails=0
 # keep re-authenticating every 10s so we stay associated. --ignore-negative-one: aireplay-ng
