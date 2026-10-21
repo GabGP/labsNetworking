@@ -166,12 +166,13 @@ The counts were checked against tshark's own counts on six real captures (20 Oct
 
 ### `competition-deauth.sh`
 
-Deauthenticates clients on one network, during the official evaluation window only. It has two modes:
+Deauthenticates clients on one network, during the official evaluation window only. It has three ways to choose the clients:
 
 - **Without `-f`:** each round is one `aireplay-ng --deauth 5 -a <BSSID>` call with no destination.
   The frames go to the broadcast address and reach every client of the AP. No client list is needed.
 - **With `-f clients.txt`:** each round is one call per MAC in the file, aimed at that client. Use
   it to leave the other clients alone. The list is a snapshot, so a client that joins later is missed.
+- **With `-x logs/own-devices.txt`:** each round reads the run's own capture and makes one call per client it lists on the AP, except the MACs in that file (your own devices). The list is read again every round, so a client that joins later is reached on the next round. Nothing is broadcast. See [COMMANDS.md section 12.10](COMMANDS.md#1210-deauth-to-the-other-clients-only-sends-frames).
 
 `-M <monitor>` takes the place of `-i`, for a monitor interface that a crack already started (`wlp2s0mon` for `wep-crack.sh`), so a round can run during the crack. This run neither starts nor stops that monitor, nor changes its channel, and leaves it up on exit. Use `-i` otherwise: it starts monitor mode and restores WiFi on exit. See [COMMANDS.md section 12.7](COMMANDS.md#127-deauth-during-a-crack-sends-frames).
 
@@ -249,7 +250,7 @@ On the Intel card the cleanup waits 12 s before it removes the monitor interface
 | Few IVs a second | The network carries little traffic, and the replay adds almost none on the Intel 3168NGW. Start a large download from a device on the network. A phone downloading from the laptop worked (TESTS.md, section 2.7). |
 | `competition-deauth.sh` says the `-u` time has passed | Give a time later today, on this machine's clock (`date` shows it). |
 | `competition-deauth.sh` says there is no capture | airodump-ng stopped at once. Read `airmon.log` in the run folder and try again. Nothing was sent. |
-| `competition-deauth.sh` prints only its usage | A real run needs `-i` or `-M`, `-b`, `-c` and `--in-window`. `-u` and `-f` are optional. COMMANDS.md §11 has the full line. |
+| `competition-deauth.sh` prints only its usage | A real run needs `-i` or `-M`, `-b`, `-c` and `--in-window`. `-u`, `-f` and `-x` are optional. COMMANDS.md §11 has the full line. |
 | A call stops with "stopped after 30 s" and no reply | aireplay-ng waited for a beacon from the AP and did not hear one on that channel. Check the channel with `managed-scan.sh`. |
 | A run stops with "Couldn't determine current channel" | aireplay-ng cannot read the card's channel, so it exits before sending. The tool passes `--ignore-negative-one` only after it has read the channel back and seen the AP in its own capture. If one of those checks refuses, the message names it. The AC8260 stopped this way before (TESTS.md, section 2.19). |
 | The end of a run says "No health table" | The capture could not be read, or tshark is missing (package `wireshark-cli`). The run's files are still in its folder; the reason is printed above that line. |
