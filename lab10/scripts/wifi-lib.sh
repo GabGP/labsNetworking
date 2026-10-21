@@ -24,6 +24,7 @@
 WIFI_PIDS=()         # background processes stopped before the card is restored
 WIFI_KILLED=0        # 1 once airmon-ng check kill has stopped NetworkManager
 MON=""               # monitor interface, set by wifi_monitor_start
+WIFI_SHARED_MONITOR=0 # 1 when another run owns MON: the exit leaves it in monitor mode
 TTY_STATE=""         # terminal settings saved by wifi_guard, put back on exit
 REPORT_CAP=""        # capture whose health table is printed on exit (set by a script that records one)
 REPORT_BSSID=""      # the AP that table counts (empty: every AP)
@@ -97,7 +98,12 @@ wifi_cleanup() {
   if [[ -n "$TTY_STATE" ]]; then stty "$TTY_STATE" 2>/dev/null; fi
   if [[ -t 1 ]]; then tput cnorm 2>/dev/null; fi
   echo; echo "[*] Cleaning up (Ctrl-C will not stop this)..."
-  wifi_restore "$IFACE" "$MON"
+  if (( WIFI_SHARED_MONITOR )); then
+    # Another run is using this monitor, so it stays in monitor mode and WiFi is not touched.
+    echo "[*] Leaving $MON in monitor mode: another run uses it."
+  else
+    wifi_restore "$IFACE" "$MON"
+  fi
   # airodump-ng has stopped, so the capture is complete. WiFi is back, so the table can be printed.
   if [[ -n "$REPORT_CAP" ]]; then report_capture_health "$REPORT_CAP" "$REPORT_BSSID"; fi
 }

