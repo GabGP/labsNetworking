@@ -9,12 +9,16 @@
  *   channel <0-13>              channel, 0 scans every channel
  *   bssid <aa:bb:cc:dd:ee:ff>   lock to one access point, or: bssid any
  *   apply                       leave the network and join with these settings
+ *   txpower <2-20>              max transmit power in dBm (the boot default is 8)
+ *   pause                       hide the log lines so you can type a command
+ *   resume                      show the log lines again
  */
 #include <stdio.h>
 #include <string.h>
 
 #include "esp_console.h"
 #include "esp_err.h"
+#include "esp_log.h"
 #include "esp_wifi.h"
 #include "keyless_console.h"
 #include "keyless_wifi.h"
@@ -125,6 +129,25 @@ static int cmd_txpower(int argc, char **argv)
     return 0;
 }
 
+/* Hides the periodic log lines so a command typed over them is easy to read. Errors still show. */
+static int cmd_pause(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    esp_log_level_set("*", ESP_LOG_ERROR);
+    printf("logs hidden, type resume to show them again\n");
+    return 0;
+}
+
+static int cmd_resume(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    esp_log_level_set("*", ESP_LOG_INFO);
+    printf("logs shown again\n");
+    return 0;
+}
+
 /* The command table. The console's own help command lists these with their help text. */
 static const esp_console_cmd_t s_commands[] = {
     { .command = "status", .help = "show the settings and whether the station is joined", .func = &cmd_status },
@@ -134,6 +157,8 @@ static const esp_console_cmd_t s_commands[] = {
     { .command = "bssid", .help = "lock to one access point (aa:bb:cc:dd:ee:ff) or 'bssid any'", .func = &cmd_bssid },
     { .command = "txpower", .help = "set the max transmit power in dBm, 2-20", .func = &cmd_txpower },
     { .command = "apply", .help = "leave the network and join with the current settings", .func = &cmd_apply },
+    { .command = "pause", .help = "hide the log lines so you can type a command", .func = &cmd_pause },
+    { .command = "resume", .help = "show the log lines again", .func = &cmd_resume },
 };
 
 void keyless_console_start(keyless_sta_config_t *cfg)

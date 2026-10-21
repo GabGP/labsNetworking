@@ -25,7 +25,7 @@ If the upload cannot connect, hold BOOT, tap RESET, release BOOT, and run the up
 
 Run this first, with no flood and no capture. Put the board within a metre of the router, flash it, and run `pio device monitor` for about a minute. The first lines show the board's MAC, its 802.11 protocol bitmap (1 = 11b, 2 = 11g, 4 = 11n) and its maximum TX power. Every 10 seconds the log shows the router's beacon signal, and whether the router has replied to the board. If the board still never connects, paste those lines.
 
-The board transmits at 8 dBm by default. At full power (20 dBm) its joins failed in the lab: the router never confirmed them. `txpower 20` in the serial console sets full power again. A 22 µF capacitor across the board's 3V3 and GND pins fixed full-power joins in the lab: with it, the router confirmed 10 of 10 joins at 20 dBm; with it removed, 1 of 10, with the board in the same spot. Full power needs the capacitor. The 8 dBm default does not.
+The board transmits at 8 dBm by default. At full power (20 dBm) its joins failed in the lab: the router never confirmed them. `txpower 20` in the serial console sets full power again. A 22 µF capacitor across the board's 3V3 and GND pins fixed full-power joins in the lab: with it, the router confirmed 10 of 10 joins at 20 dBm; with it removed, 1 of 10, with the board in the same spot. Full power needs the capacitor. The 8 dBm default does not. In the serial console, `pause` hides the log lines so you can type a command, and `resume` shows them again.
 
 ## Test
 
