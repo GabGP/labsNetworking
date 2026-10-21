@@ -10,6 +10,9 @@ the scripts do, what their output means, and troubleshooting.
 > ⚠️ **Authorized use only.** Run this against your own GL-AR300M16 while
 > practicing, and against the class router **only** during the evaluation
 > window. WEP attacks on networks you don't own are illegal.
+>
+> Deauthentication and traffic toward the class router are allowed only in the
+> official window, as the course staff's written reply sets out (TESTS.md, section 4).
 
 ---
 
@@ -32,7 +35,7 @@ The whole game is therefore **IVs per second**:
 
 | Card | Monitor mode | Injection | Role in this lab |
 |------|:---:|:---:|---|
-| Intel **AC8260** (`iwlwifi`, built-in) | ✅ | ⚠️ partial | Passive capture and scanning; it recovered a key passively on 20 Oct (TESTS.md, section 2.19). Injected on channel 1 from 10:22 on 18 Oct until 19:41. On 20 Oct it failed with the antenna cable on chain 0 and passed from 01:54 with the cable on chain 1 (TESTS.md, section 2.19) |
+| Intel **AC8260** (`iwlwifi`, built-in) | ✅ | ⚠️ partial | Passive capture and scanning. It recovered a key passively on 20 Oct (TESTS.md, section 2.19). It injected on channel 1 from 10:22 to 19:41 on 18 Oct. On 20 Oct it failed with the antenna cable on chain 0 and passed from 01:54 with the cable on chain 1 |
 | Intel **3168NGW** (`iwlwifi`, 1x1; the card in the laptop as of 20 Oct) | ✅ | ✅ on channels 1 and 6 | Passive capture recovered the WEP key on 19 Oct and again on 20 Oct, both from the phone's download. Active replays: the AP drops the card within seconds, and the firmware stalls (TESTS.md, sections 2.7 and 2.20). |
 
 On 18 Oct 2026 the Intel AC8260 failed in every test from the 08:30 reboot until 10:22,
@@ -41,11 +44,12 @@ The 10:30 channel 6 test found no AP because the lab router was off. On 20 Oct i
 cable on chain 0 and passed with it on chain 1 (TESTS.md, section 2.19).
 Test the target itself with `sudo ./scripts/injection-test.sh -i <iface> -c <channel> -b <AP_BSSID>`,
 and repeat it before relying on a card. Adapters such as an Atheros AR9271 USB or a MediaTek
-MT7921AU are often suggested for active mode. Neither has been tested in this lab. The spare
-Intel 3168NGW injected on channels 1 and 6 in 8 of 8 runs on 18 Oct, and on channel 6 in 4 of 4 runs on 20 Oct.
+MT7921AU are often suggested for active mode. Neither has been tested in this lab. The Intel
+3168NGW passed every injection test recorded here: 8 on channels 1 and 6 on 18 Oct, 3 on channel 6 on 19 Oct, and 4 on channel 6 on 20 Oct (TESTS.md, sections 2.2 and 2.20).
 
-On 17 Oct 2026 the Intel card above was replaced by a Realtek **RTL8723BE**
-(`rtl8723be`). It is a single-interface driver: `airmon-ng` switches `wlp2s0` itself
+On 17 Oct 2026 the AC8260 was swapped for a Realtek **RTL8723BE** (`rtl8723be`),
+which left the laptop after 21:11 on 18 Oct (TESTS.md, section 2.1). It is a
+single-interface driver: `airmon-ng` switches `wlp2s0` itself
 into monitor mode instead of creating a `wlp2s0mon` interface, so the script has to
 put it back in managed mode on exit. Injection passed on channel 1 in several
 tests on 17–18 Oct and failed in others. The cause is not known yet.
@@ -76,6 +80,7 @@ The laptop scripts are in `scripts/`. The router script is in `router/`.
    target answers, it starts fake-auth and ARP replay.
 4. Every 3 s it prints the IV count, the IV rate and, in active mode, the ARP replay counters. Once there are at least 40,000 IVs it runs `aircrack-ng` in the background, then again each time the count grows by `-t` (default 10,000). A try that finds the key takes under a second; a failed one stops at its 10 s cap, and the progress lines keep running meanwhile.
 5. When the key is found, it prints the key in ASCII and hex, writes `<prefix>.key` (26 hex digits, as aircrack-ng writes it), and cleans up.
+6. On exit, after WiFi is back, it prints the capture-health table for its capture and saves it as `<prefix>-01-health.txt` (see [Capture health](#capture-health)).
 
 Notes:
 
@@ -88,8 +93,9 @@ Notes:
 Starts monitor mode and runs `airodump-ng` in the foreground, so the access
 points show in the terminal. Use it to find the BSSID and channel before
 `wep-crack.sh`. Ctrl-C stops it and restores WiFi. Its capture goes to a new folder
-under `logs/`. It hops 2.4 GHz channels by default; `-B abg` adds 5 GHz, which only the
-AC8260 can see.
+under `logs/`. It hops 2.4 GHz channels by default; `-B abg` adds 5 GHz. The 3168NGW's managed
+scan saw channel 36 on 18 Oct, so it sees 5 GHz too; its monitor-mode 5 GHz hop is
+untested (TESTS.md, section 2.3).
 
 ### `managed-scan.sh`
 
@@ -118,7 +124,8 @@ log goes to a new folder under `logs/`.
 ### `wifi-lib.sh`
 
 The code that the scripts above and `wep-crack.sh` share: starting monitor mode,
-the injection test, the airodump start, and the recovery that runs on every exit.
+the injection test, the airodump start, the capture-health table, and the recovery that
+runs on every exit.
 Recovery handles both driver styles (a separate `<iface>mon` vif, or single-vif).
 A fix there applies to all four scripts.
 
@@ -133,6 +140,44 @@ because `iwinfo` still reports the WEP settings after hostapd has refused them.
   152-bit keys are not supported by the router's driver.
 - Leave the router on this config only for the lab. Restore WPA2 from the
   backup it made.
+
+### Capture health
+
+`wep-crack.sh` and `competition-deauth.sh` print this table when they exit, after WiFi is
+back, and save it as `<prefix>-01-health.txt` beside the capture. It reads the capture
+file only, so the card is not touched. It needs `tshark` (package `wireshark-cli`). One row
+per minute, and a total row:
+
+- `WEP_frames`: data frames with the WEP bit set. Each carries an IV.
+- `AP_bcast`: of those, the frames the AP sent to the broadcast address.
+- `retry%`: the share of those flagged as retries.
+- `deauth`, `disassoc`, `auth`, `assoc_req`: management frames of those types. They carry
+  the AP's address whoever sent them, so they show what reached the air, not who sent it.
+
+Reading the table took 6 to 7 s on the 132 to 139 MB captures of 19 Oct. The cost is paid once, at exit. To read an
+older capture by hand:
+
+```bash
+bash -c 'source scripts/wifi-lib.sh && capture_health logs/<run>/cap-01.cap <BSSID>'
+```
+
+The counts were checked against tshark's own counts on six real captures (20 Oct).
+
+### `competition-deauth.sh`
+
+Deauthenticates clients on one network, during the official evaluation window only. It has two modes:
+
+- **Without `-f`:** each round is one `aireplay-ng --deauth 5 -a <BSSID>` call with no destination.
+  The frames go to the broadcast address and reach every client of the AP. No client list is needed.
+- **With `-f clients.txt`:** each round is one call per MAC in the file, aimed at that client. Use
+  it to leave the other clients alone. The list is a snapshot, so a client that joins later is missed.
+
+Required: `-i`, `-b`, `-c`, `-u HH:MM` (when the window closes; the run stops then) and `--in-window`.
+The BSSID must be in `scripts/authorized-bssids.txt`, and you type START at the prompt. `--dry-run`
+prints the plan and sends nothing. Each run folder holds `deauth.log`, the raw `aireplay.txt`,
+`capture-01.cap` and `capture-01-health.txt`. The commands are in
+[COMMANDS.md](COMMANDS.md#11-the-evaluation-window-capture-health-and-deauth), the checks in TESTS.md
+section 4.2. It has not been run on air yet.
 
 ---
 
@@ -154,6 +199,19 @@ because `iwinfo` still reports the WEP settings after hostapd has refused them.
 The ASCII line appears only when every byte of the key is printable.
 
 The `.cap` file and recovered key are your **evidence for the GES report**.
+
+The [capture-health table](#capture-health) gives the same kind of count per minute. The 20 Oct
+04:00 run, AP only, looks like this (the 04:00 row is the start of the run, when the deauth
+burst in TESTS.md 2.20 happened):
+
+```
+minute WEP_frames  AP_bcast  retry%  deauth  disassoc   auth assoc_req
+04:00           0         0    0.0%     210         0    227         1
+04:01        3925         8    0.1%       0     13036     84         7
+04:02        5618        12    0.0%       0     23511     79         5
+04:03       71363        16    1.2%       0     25295     49         2
+total       80906        36    1.1%     210     61842    439        15
+```
 
 ---
 
@@ -186,15 +244,32 @@ On the Intel card the cleanup waits 12 s before it removes the monitor interface
 | Target is on channel 6 and the card is the Realtek | The Realtek receives only on the channel it started on. Use the AC8260 on that channel, or connect the card to a network on that channel before monitor mode starts (see Hardware). |
 | Hidden network, injection test shows 0/30 | Most hidden networks ignore probes that don't name them, so the test can't see them even when injection works. Get the name first; airodump shows it once a client connects. Untested in this lab. |
 | Few IVs a second | The network carries little traffic, and the replay adds almost none on the Intel 3168NGW. Start a large download from a device on the network. A phone downloading from the laptop worked (TESTS.md, section 2.7). |
+| `competition-deauth.sh` says the BSSID is not in `scripts/authorized-bssids.txt` | Add the evaluation network's BSSID to that file. It is local and stays out of git. |
+| `competition-deauth.sh` says the `-u` time has passed | Give a time later today, on this machine's clock (`date` shows it). |
+| `competition-deauth.sh` says there is no capture | airodump-ng stopped at once. Read `airmon.log` in the run folder and try again. Nothing was sent. |
+| `competition-deauth.sh` prints only its usage | A real run needs `-i`, `-b`, `-c`, `-u HH:MM` and `--in-window`. `-f` is optional. COMMANDS.md §11 has the full line. |
+| A call stops with "stopped after 30 s" and no reply | aireplay-ng waited for a beacon from the AP and did not hear one on that channel. Check the channel with `managed-scan.sh`. |
+| A call prints "Couldn't determine current channel" | The AC8260 cannot use aireplay-ng's `-a` mode (TESTS.md, section 2.19). Use the 3168NGW. This aireplay-ng has `--ignore-negative-one`, which the tool does not use yet. |
+| The end of a run says "No health table" | The capture could not be read, or tshark is missing (package `wireshark-cli`). The run's files are still in its folder; the reason is printed above that line. |
+| "Ignoring N line(s)" from the deauth tool | The client file given with `-f` has a typo. Only the MACs the tool prints before START are targeted. |
 
 ---
 
-## Adversarial round (ESP32-C3)
+## Adversarial round
 
-The second half of the grade asks how **congestion, packet loss and availability
-attacks** change a capture, and which tools identify them. The research and the
-planned measurements are in [TESTS.md, section 4](TESTS.md#4-adversarial-and-physical-actions).
-The ESP32-C3 boards are used for the keyless-station test (TESTS.md, sections 2.21 and 5)
-and as a packet monitor. The congestion tests run only on our own router and our own
-devices, not on other participants' captures or the class router's shared traffic.
+The grade's second part asks how **congestion, packet loss and availability attacks**
+change a capture, and which tools identify them. The research, the checks and the
+window rules are in [TESTS.md, section 4](TESTS.md#4-adversarial-and-physical-actions).
+The commands are in [COMMANDS.md, section 11](COMMANDS.md#11-the-evaluation-window-capture-health-and-deauth).
+
+- **Our own equipment:** the congestion tests may run at any time on our own router and devices.
+- **The window:** deauthentication of clients on the evaluation network, and traffic toward
+  the class router's channel, only during the official window, as the course staff's written
+  reply allows.
+- **Tools:** the [capture-health table](#capture-health) counts the frames behind each condition,
+  and every run prints it. `scripts/competition-deauth.sh` deauthenticates the clients of a network
+  inside the window, and only on networks in `scripts/authorized-bssids.txt`.
+- **The ESP32-C3 boards** are used for the keyless-station test and as a packet monitor
+  (TESTS.md, sections 2.21 and 5).
+
 RF noise jamming is out of scope: the lab rules say it is illegal.
