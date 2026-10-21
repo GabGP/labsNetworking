@@ -7,6 +7,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "keyless_config.h"
 #include "keyless_monitor.h"
 #include "keyless_wifi.h"
 
@@ -39,9 +40,15 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         return;
     }
     switch (id) {
-    case WIFI_EVENT_STA_START:
+    case WIFI_EVENT_STA_START: {
+        /* Set before the first connect: full power failed to join on this board. */
+        esp_err_t err = esp_wifi_set_max_tx_power(KEYLESS_DEFAULT_TX_DBM * 4);
+        if (err != ESP_OK) {
+            ESP_LOGW(TAG, "could not set TX power: %s", esp_err_to_name(err));
+        }
         esp_wifi_connect();
         break;
+    }
     case WIFI_EVENT_STA_CONNECTED: {
         const wifi_event_sta_connected_t *e = data;
         s_connected = true;
