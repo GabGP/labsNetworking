@@ -18,6 +18,8 @@
  * it, joins at 20 dBm failed in the lab. Boards without the capacitor should use 8 dBm. The console's
  * txpower command changes it. */
 #define KEYLESS_DEFAULT_TX_DBM 20
+/* Wait after a failed join before the next try, in milliseconds. */
+#define KEYLESS_RETRY_MS 2000
 
 typedef struct {
     char ssid[33];

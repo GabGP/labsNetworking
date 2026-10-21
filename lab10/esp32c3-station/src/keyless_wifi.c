@@ -4,6 +4,7 @@
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_timer.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,6 +17,9 @@
 static volatile bool s_connected;
 static volatile uint8_t s_last_reason;
 static volatile uint32_t s_disconnects;
+/* True while apply changes the settings, so a retry does not start in the middle of it. */
+static volatile bool s_applying;
+static esp_timer_handle_t s_retry_timer;
 
 /* Turns the settings into the driver's config. The threshold is WEP, so the station joins this
  * WEP network and never falls back to WPA2. */
@@ -31,6 +35,15 @@ static void build_wifi_config(const keyless_sta_config_t *cfg, wifi_config_t *ou
     out->sta.threshold.authmode = WIFI_AUTH_WEP;
     out->sta.pmf_cfg.capable = false;
     out->sta.pmf_cfg.required = false;
+}
+
+/* Starts the try queued after a failed join. */
+static void retry_timer_cb(void *arg)
+{
+    (void)arg;
+    if (!s_connected && !s_applying) {
+        esp_wifi_connect();
+    }
 }
 
 static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, void *data)
@@ -67,6 +80,13 @@ static void wifi_event_handler(void *arg, esp_event_base_t base, int32_t id, voi
         s_last_reason = e->reason;
         s_disconnects++;
         ESP_LOGW(TAG, "disconnected, reason %d", e->reason);
+        /* The driver has ended this try, so queue the next one after a short wait. */
+        if (!s_applying && !esp_timer_is_active(s_retry_timer)) {
+            esp_err_t err = esp_timer_start_once(s_retry_timer, KEYLESS_RETRY_MS * 1000ULL);
+            if (err != ESP_OK) {
+                ESP_LOGW(TAG, "could not queue the retry: %s", esp_err_to_name(err));
+            }
+        }
         break;
     }
     default:
@@ -78,6 +98,11 @@ void keyless_wifi_start(const keyless_sta_config_t *cfg)
 {
     wifi_init_config_t init_cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&init_cfg));
+    const esp_timer_create_args_t retry_args = {
+        .callback = &retry_timer_cb,
+        .name = "keyless_retry",
+    };
+    ESP_ERROR_CHECK(esp_timer_create(&retry_args, &s_retry_timer));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID,
                                                         &wifi_event_handler, NULL, NULL));
 
@@ -106,6 +131,9 @@ esp_err_t keyless_wifi_apply(const keyless_sta_config_t *cfg)
 {
     wifi_config_t wifi_cfg;
     build_wifi_config(cfg, &wifi_cfg);
+    s_applying = true;
+    /* Drops a queued retry, so apply's own try is the only one. */
+    esp_timer_stop(s_retry_timer);
     keyless_monitor_disable();
     esp_wifi_disconnect();
     /* Wait for the disconnect before the config changes, so the driver takes the new settings. */
@@ -116,12 +144,16 @@ esp_err_t keyless_wifi_apply(const keyless_sta_config_t *cfg)
     if (err == ESP_OK) {
         esp_wifi_connect();
     }
+    s_applying = false;
     return err;
 }
 
 void keyless_wifi_retry(void)
 {
-    esp_wifi_connect();
+    /* Skipped while apply runs, and while a queued try is still waiting to start. */
+    if (!s_applying && !esp_timer_is_active(s_retry_timer)) {
+        esp_wifi_connect();
+    }
 }
 
 bool keyless_wifi_connected(void)
