@@ -9,7 +9,7 @@
 # The Wi-Fi settings are not touched: run ../wifi-wep-test.sh on the router afterwards.
 set -eu
 
-ROUTER=${ROUTER:-root@your-router-ip}
+ROUTER=${ROUTER:-root@192.168.8.1}
 SSH_OPTIONS=${SSH_OPTIONS:--o BatchMode=yes -o ConnectTimeout=10}
 # What GL.iNet 4.3.x ships; the router must run exactly this version.
 EXPECTED_VERSION=2022-01-16-cff80b4f-18.2
@@ -23,11 +23,13 @@ on_router() { ssh $SSH_OPTIONS "$ROUTER" "$@"; }
 # netifd: radios up, or given up on (hostapd refused the config).
 swap_wpad='
 failed=
-/etc/init.d/wpad stop
+wifi down 2>/dev/null || true
+/etc/init.d/wpad stop 2>/dev/null || true
 sleep 1
-if grep -q " /usr/sbin/wpad " /proc/mounts && ! umount /usr/sbin/wpad; then
-    echo "error: could not unmount /usr/sbin/wpad" >&2
-    failed=1
+if grep -q " /usr/sbin/wpad " /proc/mounts; then
+    if ! umount /usr/sbin/wpad 2>/dev/null; then
+        umount -l /usr/sbin/wpad 2>/dev/null || { echo "error: could not unmount /usr/sbin/wpad" >&2; failed=1; }
+    fi
 fi
 if [ -z "$failed" ]; then
     if [ "$MODE" = install ]; then
@@ -36,8 +38,8 @@ if [ -z "$failed" ]; then
         rm -f /tmp/wpad-wep
     fi
 fi
-/etc/init.d/wpad start
-sleep 2
+/etc/init.d/wpad start 2>/dev/null || true
+sleep 1
 wifi up
 i=0
 while [ $i -lt 20 ]; do
