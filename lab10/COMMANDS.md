@@ -220,7 +220,7 @@ sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM
 sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM> --in-window -f clients.txt
 ```
 
-- `-m wlp2s0mon` takes the place of `-i wlp2s0` when a crack already runs on that monitor (section 12.7). This run then neither starts nor stops the monitor, and WiFi stays as the crack left it.
+- `-M wlp2s0mon` takes the place of `-i wlp2s0` when a crack already runs on that monitor (section 12.7). This run then neither starts nor stops the monitor, and WiFi stays as the crack left it. `wep-crack.sh -M` joins a monitor the same way (section 12.9).
 - `--in-window` is required, and you pass it only while the window is open.
 - `-u HH:MM` is optional. Use it for the window's end: the run stops by itself at that time, on this machine's clock. Without it, the run goes until `-r` rounds or Ctrl-C.
 - `-f clients.txt` is optional. With it, each round makes one call per listed client. Without it, each round
@@ -317,7 +317,7 @@ Ctrl-C stops any run at once, and the script restores WiFi on exit. The table ma
 
 ### 12.7 Deauth during a crack (sends frames)
 
-This checks that a round does not stop a running crack. The crack and the round use the same monitor, so the round takes `-m`, not `-i`. Run it on the GL router only.
+This checks that a round does not stop a running crack. The crack and the round use the same monitor, so the round takes `-M`, not `-i`. Run it on the GL router only.
 
 1. Start the crack in one terminal. Its first lines name the monitor (`wlp2s0mon`):
    ```bash
@@ -326,7 +326,7 @@ This checks that a round does not stop a running crack. The crack and the round 
    Expect `[*] Monitor interface: wlp2s0mon`, `[*] Associating with AP (fake auth)...`, then lines with `IVs`. Wait until the IV count rises.
 2. In a second terminal, one round to your phone, using `my-phone.txt` from 12.4. Type `START` when asked. **This sends frames.**
    ```bash
-   sudo ./scripts/competition-deauth.sh -m wlp2s0mon -b <GL BSSID> -c 6 -f my-phone.txt -r 1 --in-window
+   sudo ./scripts/competition-deauth.sh -M wlp2s0mon -b <GL BSSID> -c 6 -f my-phone.txt -r 1 --in-window
    ```
    Expect `[*] wlp2s0mon reports channel 6.` twice, `[*] The run's capture hears <GL BSSID>.`, one `round 1 <phone MAC>: ...` line, `Leaving wlp2s0mon in monitor mode: another run uses it.`, and `Done: 1 round(s)`. WiFi is not restored, because the crack still uses the card.
 3. Back in the crack's terminal, the IV count keeps rising, and none of these lines appear: `fake auth stopped`, `ARP replay stopped`, `is gone`. Ctrl-C stops the crack and restores WiFi.

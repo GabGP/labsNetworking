@@ -15,19 +15,19 @@
 # per client in the file (one MAC per line; # starts a comment). The AP and this card are never targets.
 # The run folder holds deauth.log (every send), aireplay.txt (the raw output), capture-01.cap (the air
 # during the run) and capture-01-health.txt (the same table, printed at the end). Ctrl-C stops the run,
-# and WiFi is restored on exit. With -m, the monitor interface stays up for the run that owns it.
+# and WiFi is restored on exit. With -M, the monitor interface stays up for the run that owns it.
 #
 # --dry-run prints the plan and exits. It needs no root and no card, and sends nothing.
 #
 # Usage:
 #   ./scripts/competition-deauth.sh -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --dry-run
 #   sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --in-window
-#   sudo ./scripts/competition-deauth.sh -m wlp2s0mon -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --in-window
+#   sudo ./scripts/competition-deauth.sh -M wlp2s0mon -b <BSSID> -c <CHANNEL> [-u <HH:MM>] --in-window
 #
 #   -i  Wi-Fi interface. The run starts monitor mode on it, and restores WiFi on exit
-#   -m  monitor interface that is already up, such as the one wep-crack.sh uses. The run neither
+#   -M  monitor interface that is already up, such as the one wep-crack.sh uses. The run neither
 #       starts nor stops it, nor changes its channel, and leaves it up on exit, so a round can run
-#       during a crack. Give -i or -m, not both. Neither is needed with --dry-run
+#       during a crack. Give -i or -M, not both. Neither is needed with --dry-run
 #   -b  BSSID of the network to target
 #   -c  the network's channel
 #   -u  optional: HH:MM on this machine's clock: when the window closes. The run stops then.
@@ -71,10 +71,10 @@ CHANNEL=""
 CLIENTS=""
 ROUNDS=""
 UNTIL=""
-while getopts ":i:m:b:c:f:r:u:h" opt; do
+while getopts ":i:M:b:c:f:r:u:h" opt; do
   case "$opt" in
     i) IFACE="$OPTARG" ;;
-    m) MONIFACE="$OPTARG" ;;
+    M) MONIFACE="$OPTARG" ;;
     b) BSSID="${OPTARG^^}" ;;
     c) CHANNEL="$OPTARG" ;;
     f) CLIENTS="$OPTARG" ;;
@@ -87,7 +87,7 @@ done
 
 # Everything up to the START prompt runs without root and changes nothing.
 [[ -n "$BSSID" && -n "$CHANNEL" ]] || usage
-[[ -z "$IFACE" || -z "$MONIFACE" ]] || die "Give -i or -m, not both: -i starts monitor mode here, -m uses one that is up."
+[[ -z "$IFACE" || -z "$MONIFACE" ]] || die "Give -i or -M, not both: -i starts monitor mode here, -M uses one that is up."
 (( DRY_RUN )) || [[ -n "$IFACE$MONIFACE" ]] || usage
 (( DRY_RUN || IN_WINDOW )) || die "Refusing to run. Pass --in-window, and only while the official evaluation window is open."
 [[ "$BSSID" =~ ^([0-9A-F]{2}:){5}[0-9A-F]{2}$ ]] || die "-b must be a BSSID such as 11:22:33:44:55:66"
@@ -108,7 +108,7 @@ if [[ -n "$CLIENTS" ]]; then
   IGNORED=$(awk '$1 !~ /^#/ && NF && $1 !~ /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/ { n++ } END { print n + 0 }' "$CLIENTS")
   (( IGNORED == 0 )) || echo "[!] Ignoring $IGNORED line(s) in $CLIENTS that are not MAC addresses."
   (( ${#STATIONS[@]} > 0 )) || die "No client MAC addresses in $CLIENTS"
-  # This card's own address and the AP are never targets. With -m, the card is the monitor interface.
+  # This card's own address and the AP are never targets. With -M, the card is the monitor interface.
   OWN=$(cat "/sys/class/net/${MONIFACE:-${IFACE:-none}}/address" 2>/dev/null | tr 'a-f' 'A-F')
   TARGETS=()
   for sta in "${STATIONS[@]}"; do
@@ -188,7 +188,7 @@ fi
   echo "# targets: ${TARGETS[*]}"
 } | tee "$LOG"
 
-# With -m, the channel is checked before the run's own capture starts: its airodump-ng -c would
+# With -M, the channel is checked before the run's own capture starts: its airodump-ng -c would
 # move the other run's card if the channel were wrong.
 if [[ -n "$MONIFACE" ]]; then check_channel; fi
 

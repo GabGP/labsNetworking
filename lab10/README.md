@@ -93,7 +93,7 @@ Notes:
 
 Starts monitor mode and runs `airodump-ng` in the foreground, so the access
 points show in the terminal. Use it to find the BSSID and channel before
-`wep-crack.sh`. Ctrl-C stops it and restores WiFi. If another run uses its monitor (`wep-crack.sh -M`, `competition-deauth.sh -m`), stop it last, because its Ctrl-C ends that monitor for them too. Its capture goes to a new folder
+`wep-crack.sh`. Ctrl-C stops it and restores WiFi. If another run uses its monitor (`wep-crack.sh -M`, `competition-deauth.sh -M`), stop it last, because its Ctrl-C ends that monitor for them too. Its capture goes to a new folder
 under `logs/`. It hops 2.4 GHz channels by default; `-B abg` adds 5 GHz. The 3168NGW's managed
 scan saw channel 36 on 18 Oct, so it sees 5 GHz too; its monitor-mode 5 GHz hop is
 untested (TESTS.md, section 2.3).
@@ -173,9 +173,9 @@ Deauthenticates clients on one network, during the official evaluation window on
 - **With `-f clients.txt`:** each round is one call per MAC in the file, aimed at that client. Use
   it to leave the other clients alone. The list is a snapshot, so a client that joins later is missed.
 
-`-m <monitor>` takes the place of `-i`, for a monitor interface that a crack already started (`wlp2s0mon` for `wep-crack.sh`), so a round can run during the crack. This run neither starts nor stops that monitor, nor changes its channel, and leaves it up on exit. Use `-i` otherwise: it starts monitor mode and restores WiFi on exit. See [COMMANDS.md section 12.7](COMMANDS.md#127-deauth-during-a-crack-sends-frames).
+`-M <monitor>` takes the place of `-i`, for a monitor interface that a crack already started (`wlp2s0mon` for `wep-crack.sh`), so a round can run during the crack. This run neither starts nor stops that monitor, nor changes its channel, and leaves it up on exit. Use `-i` otherwise: it starts monitor mode and restores WiFi on exit. See [COMMANDS.md section 12.7](COMMANDS.md#127-deauth-during-a-crack-sends-frames).
 
-Required: `-i` or `-m`, `-b`, `-c` and `--in-window`. `-u HH:MM` is optional: with it, the run stops when the window
+Required: `-i` or `-M`, `-b`, `-c` and `--in-window`. `-u HH:MM` is optional: with it, the run stops when the window
 closes. You type START at the prompt. `--dry-run`
 prints the plan and sends nothing. Each run folder holds `deauth.log`, the raw `aireplay.txt`,
 `capture-01.cap` and `capture-01-health.txt`. The commands are in
@@ -249,7 +249,7 @@ On the Intel card the cleanup waits 12 s before it removes the monitor interface
 | Few IVs a second | The network carries little traffic, and the replay adds almost none on the Intel 3168NGW. Start a large download from a device on the network. A phone downloading from the laptop worked (TESTS.md, section 2.7). |
 | `competition-deauth.sh` says the `-u` time has passed | Give a time later today, on this machine's clock (`date` shows it). |
 | `competition-deauth.sh` says there is no capture | airodump-ng stopped at once. Read `airmon.log` in the run folder and try again. Nothing was sent. |
-| `competition-deauth.sh` prints only its usage | A real run needs `-i` or `-m`, `-b`, `-c` and `--in-window`. `-u` and `-f` are optional. COMMANDS.md §11 has the full line. |
+| `competition-deauth.sh` prints only its usage | A real run needs `-i` or `-M`, `-b`, `-c` and `--in-window`. `-u` and `-f` are optional. COMMANDS.md §11 has the full line. |
 | A call stops with "stopped after 30 s" and no reply | aireplay-ng waited for a beacon from the AP and did not hear one on that channel. Check the channel with `managed-scan.sh`. |
 | A run stops with "Couldn't determine current channel" | aireplay-ng cannot read the card's channel, so it exits before sending. The tool passes `--ignore-negative-one` only after it has read the channel back and seen the AP in its own capture. If one of those checks refuses, the message names it. The AC8260 stopped this way before (TESTS.md, section 2.19). |
 | The end of a run says "No health table" | The capture could not be read, or tshark is missing (package `wireshark-cli`). The run's files are still in its folder; the reason is printed above that line. |
