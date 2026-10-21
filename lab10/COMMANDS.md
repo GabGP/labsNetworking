@@ -181,7 +181,7 @@ phone connected for the whole capture.
 
 ## 10. Make traffic for the IVs (the flood test)
 
-A flood from the laptop over the wired LAN also gives IVs, as long as a station is on the network (TESTS.md 2.9, 2.18). Start the capture first, and run one flood at a time: two floods at once mix frame sizes in the capture (2.17).
+A flood from the laptop over the wired LAN also gives IVs, as long as a station is on the network (TESTS.md 2.9, 2.18). It needs a cable from the laptop to the GL router's LAN port, so it works on GL only: the class router is reachable only over the air. Start the capture first, and run one flood at a time: two floods at once mix frame sizes in the capture (2.17).
 
 ```bash
 python3 scripts/broadcast_feed.py 192.168.8.255 300 600     # to every station on the LAN, 300 a second for 10 minutes
@@ -416,6 +416,8 @@ Expect `[!] wlp2s0mon reports channel '6', not 11. Nothing was changed.` for the
 
 Use this when the network sends no ARP request of its own, so active mode has nothing to copy. Run it on the GL router only. The fragment attack needs a frame that the AP relays to the client named with `-C`, so that client has to be transmitting: start a download on it first (section 9). The first runs on 21 Oct passed no `-C`, so the fragment step waited for a frame that could not match, and nothing was forged.
 
+**Card limit (21 Oct):** with `-C` set, the fragments reach the phone, but on the 3168 in monitor mode the AP drops the fake station. It sends reason-7 disassociations and retransmits its own frames to us, because our card does not acknowledge them. So forge cannot finish on the 3168. Test it only on a card that acknowledges (the AR9271 is untested).
+
 1. Terminal 1: start the download on the phone (section 9), and leave it running. The laptop must reach the router by its LAN cable: the crack takes wlp2s0 out of Wi-Fi, so the download server has to run on the cable address.
 2. Terminal 2: the forge run. **This sends frames** to the GL router: fake auth, fragments and forged ARP requests.
    ```bash
@@ -431,7 +433,7 @@ Use this when the network sends no ARP request of its own, so active mode has no
 
 ### 12.12 Caffe-latte, mode caffe (listens, replays an ARP)
 
-Caffe-latte needs no client address. The aireplay-ng 1.7 source reads the AP (`-b`) and never reads `-c`, and it sends no deauthentication. It listens, and it replays a broadcast ARP frame when a client sends one. On 21 Oct, with the phone downloading, the key came from the phone's traffic, and the replay found no ARP frame, so caffe acted like passive mode. Run it on the GL router only.
+Caffe-latte replays one broadcast ARP frame of a client, and the client's answers carry the IVs. It runs without a fake station. It does nothing until a client sends such a frame: a broadcast ARP of 68 or 86 bytes, encrypted. On 21 Oct the phone sent none (its broadcasts were all 378 bytes), so caffe acted like passive mode. Run it on the GL router only.
 
 First, the refusals. They stop before the card is touched, and no run folder is made:
 
@@ -442,14 +444,19 @@ sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m caffe -C 11:22:33:44
 
 Expect `[!] -m forge needs -C <client MAC>: ...` for the first, and `[!] -C is only used by -m forge.` for the second.
 
-1. Connect the phone to the GL router, and start a download on it (section 9).
-2. The run. **This sends frames** (fake auth, and the replay when an ARP comes).
+1. Check whether the client sends candidates at all. Take a two-minute passive capture with the phone idle, then count its broadcast frames by length:
+   ```bash
+   sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m passive -o caffe_base
+   tshark -r logs/<run folder>/caffe_base-01.cap -Y 'wlan.fc.tods == 1 && wlan.fc.protected == 1 && wlan.da == ff:ff:ff:ff:ff:ff' -T fields -e frame.len | sort -n | uniq -c
+   ```
+   A 68 or 86 in the output is a candidate. On 21 Oct the phone's broadcasts were all 378 bytes, so this check would show none. If the client never sends 68 or 86, caffe has nothing to replay, and passive capture is the only IV source left.
+2. The caffe run, with the phone connected. **This sends frames**, but only when a candidate arrives:
    ```bash
    sudo ./scripts/wep-crack.sh -i wlp2s0 -b <GL BSSID> -c 6 -m caffe -o caffe_test
    ```
-   Expect `[*] Associating with AP (fake auth)...`, `[*] Target answered x/y probes.`, `[*] Caffe-latte: no client address needed. It replays a client's broadcast ARP when one comes.`, then lines with `IVs` and `ARP req`. With a download running, `IVs` climbs. `ARP req` stays 0 until a client sends a broadcast ARP.
-3. The replay part. While the run goes, turn the phone's Wi-Fi off and back on. When it gets its address again, it may send a broadcast ARP. Then `ARP req` rises above 0, and the `replay_arp-*.cap` in the run folder grows past its 24-byte header. If nothing changes, the phone sent no ARP, which is not a failure of caffe.
-4. If the run ends at once with `Replay stopped; see .../caffe_test-replay.txt`, read that file. An error such as `Please specify ...` means the flags need a change, and that line is what to send back. Ctrl-C stops a run that works.
+   Expect `[*] Caffe-latte: no fake station...`, then lines with `IVs` and `ARP req`. `ARP req` stays 0 until a candidate arrives.
+3. Turn the phone's Wi-Fi off and back on during the run, to try to make it send one. If `ARP req` rises, the `replay_arp-*.cap` in the run folder grows past its 24-byte header, and the IVs should rise after it. If nothing changes, the phone sent no candidate.
+4. If the run ends at once with `Replay stopped; see .../caffe_test-replay.txt`, read that file. An error such as `Please specify ...` means the flags need a change, and that line is what to send back. Ctrl-C stops the run.
 
 ### 12.13 Deauth reason code (dry run, then sends frames)
 

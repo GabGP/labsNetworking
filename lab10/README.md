@@ -77,8 +77,8 @@ The laptop scripts are in `scripts/`. The router script is in `router/`.
 3. **Active, forge and caffe modes:** runs the injection test against the target BSSID and
    saves the output to `<prefix>-injection.txt` in the run folder. If the target does not
    answer, it switches to passive mode, so it never silently does nothing. If the
-   target answers, it starts fake-auth and the replay: ARP replay (active), a forged ARP
-   request (forge), or caffe-latte (caffe).
+   target answers, it starts the replay: fake-auth and ARP replay (active), fake-auth and a forged ARP
+   request (forge), or caffe-latte alone (caffe, no fake station).
 4. Every 3 s it prints the IV count, the IV rate and, in the active modes, the replay counters. Once there are at least 40,000 IVs it runs `aircrack-ng` in the background, then again each time the count grows by `-t` (default 10,000). A try that finds the key takes under a second; a failed one stops at its 10 s cap, and the progress lines keep running meanwhile.
 5. When the key is found, it prints the key in ASCII and hex, writes `<prefix>.key` (26 hex digits, as aircrack-ng writes it), and cleans up.
 6. On exit, after WiFi is back, it prints the capture-health table for its capture and saves it as `<prefix>-01-health.txt` (see [Capture health](#capture-health)).
@@ -89,9 +89,8 @@ Notes:
 - On exit, including Ctrl-C, the script stops the monitor interface and restarts
   NetworkManager.
 - `-M <monitor>` (instead of `-i`) uses a monitor interface that is already up, such as the one `airodump.sh -i wlp2s0 -c <CH>` started. The card must already be on `-c`, or the run refuses to start. It neither starts nor stops that monitor and leaves it up on exit, so WiFi is restored by the run that owns the monitor. See [COMMANDS.md section 12.9](COMMANDS.md#129-a-crack-on-a-monitor-that-is-already-up-listens-only).
-- `-m forge -C <client MAC>` is active mode with a forged ARP request, for a network that sends no ARP request of its own. A fragment attack takes a keystream from a frame the AP relays to that client, `packetforge-ng` builds an ARP request from it, and `aireplay-ng --interactive` replays that. It waits up to 120 s. See [COMMANDS.md section 12.11](COMMANDS.md#1211-forged-arp-request-mode-forge-sends-frames).
-- `-m caffe` runs aireplay-ng's caffe-latte. It needs no client address and sends no deauthentication: it listens, and it replays a broadcast ARP frame when a client sends one. Until then, the IVs come from the client's traffic, as in passive mode. See [COMMANDS.md section 12.12](COMMANDS.md#1212-caffe-latte-mode-caffe-listens-replays-an-arp).
-
+- `-m forge -C <client MAC>` is active mode with a forged ARP request, for a network that sends no ARP request of its own. A fragment attack takes a keystream from a frame the AP relays to that client, `packetforge-ng` builds an ARP request from it, and `aireplay-ng --interactive` replays that. It waits up to 120 s. On the 3168 in monitor mode the AP drops the fake station (21 Oct), so forge cannot finish there. See [COMMANDS.md section 12.11](COMMANDS.md#1211-forged-arp-request-mode-forge-sends-frames).
+- `-m caffe` runs aireplay-ng's caffe-latte with no fake station. It replays a broadcast ARP frame (68 or 86 bytes) that a client sends, and the client's answers carry the IVs. Until a client sends one, it works like passive mode, and on 21 Oct the phone sent none. See [COMMANDS.md section 12.12](COMMANDS.md#1212-caffe-latte-mode-caffe-listens-replays-an-arp).
 ### `airodump.sh`
 
 Starts monitor mode and runs `airodump-ng` in the foreground, so the access
