@@ -1,17 +1,18 @@
 /*
  * Serial console, built on the ESP-IDF console (a REPL) over the USB serial port. Type a command and
- * press Enter; the board answers on the same port. Settings only take effect after apply.
+ * press Enter; the board answers on the same port. Settings only take effect after apply. Each
+ * command also has a one-letter short form, shown first below.
  *
- *   help                        list the commands
- *   status                      the settings, and whether the station is joined
- *   ssid <name>                 network name, up to 32 characters
- *   key <key>                   WEP key, 5 or 13 ASCII characters (never printed back)
- *   channel <0-13>              channel, 0 scans every channel
- *   bssid <aa:bb:cc:dd:ee:ff>   lock to one access point, or: bssid any
- *   apply                       leave the network and join with these settings
- *   txpower <2-20>              max transmit power in dBm (the boot default is 20)
- *   pause                       hide the log lines so you can type a command
- *   resume                      show the log lines again
+ *   h   help                        list the commands
+ *   s   status                      the settings, and whether the station is joined
+ *   n   ssid <name>                 network name, up to 32 characters
+ *   k   key <key>                   WEP key, 5 or 13 ASCII characters (never printed back)
+ *   c   channel <0-13>              channel, 0 scans every channel
+ *   b   bssid <aa:bb:cc:dd:ee:ff>   lock to one access point, or: bssid any
+ *   a   apply                       leave the network and join with these settings
+ *   t   txpower <2-20>              max transmit power in dBm (the boot default is 20)
+ *   p   pause                       hide the log lines so you can type a command
+ *   r   resume                      show the log lines again
  */
 #include <stdio.h>
 #include <string.h>
@@ -148,17 +149,42 @@ static int cmd_resume(int argc, char **argv)
     return 0;
 }
 
-/* The command table. The console's own help command lists these with their help text. */
+/* ESP-IDF keeps its help function private, so the short form runs help by name. */
+static int cmd_help(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    int ret = 0;
+    esp_err_t err = esp_console_run("help", &ret);
+    if (err != ESP_OK) {
+        printf("could not run help: %s\n", esp_err_to_name(err));
+        return 1;
+    }
+    return ret;
+}
+
+/* The command table. The console's own help command lists the entries with help text. The short forms
+ * at the end have none, so help leaves them out. */
 static const esp_console_cmd_t s_commands[] = {
-    { .command = "status", .help = "show the settings and whether the station is joined", .func = &cmd_status },
-    { .command = "ssid", .help = "set the network name, up to 32 characters", .func = &cmd_ssid },
-    { .command = "key", .help = "set the WEP key, 5 or 13 characters (never printed back)", .func = &cmd_key },
-    { .command = "channel", .help = "set the channel, 0-13 (0 scans every channel)", .func = &cmd_channel },
-    { .command = "bssid", .help = "lock to one access point (aa:bb:cc:dd:ee:ff) or 'bssid any'", .func = &cmd_bssid },
-    { .command = "txpower", .help = "set the max transmit power in dBm, 2-20", .func = &cmd_txpower },
-    { .command = "apply", .help = "leave the network and join with the current settings", .func = &cmd_apply },
-    { .command = "pause", .help = "hide the log lines so you can type a command", .func = &cmd_pause },
-    { .command = "resume", .help = "show the log lines again", .func = &cmd_resume },
+    { .command = "status", .help = "[s] show the settings and whether the station is joined", .func = &cmd_status },
+    { .command = "ssid", .help = "[n] set the network name, up to 32 characters", .func = &cmd_ssid },
+    { .command = "key", .help = "[k] set the WEP key, 5 or 13 characters (never printed back)", .func = &cmd_key },
+    { .command = "channel", .help = "[c] set the channel, 0-13 (0 scans every channel)", .func = &cmd_channel },
+    { .command = "bssid", .help = "[b] lock to one AP (aa:bb:cc:dd:ee:ff) or 'bssid any'", .func = &cmd_bssid },
+    { .command = "txpower", .help = "[t] set the max transmit power in dBm, 2-20", .func = &cmd_txpower },
+    { .command = "apply", .help = "[a] leave the network and join with the current settings", .func = &cmd_apply },
+    { .command = "pause", .help = "[p] hide the log lines so you can type a command", .func = &cmd_pause },
+    { .command = "resume", .help = "[r] show the log lines again", .func = &cmd_resume },
+    { .command = "h", .func = &cmd_help },
+    { .command = "s", .func = &cmd_status },
+    { .command = "n", .func = &cmd_ssid },
+    { .command = "k", .func = &cmd_key },
+    { .command = "c", .func = &cmd_channel },
+    { .command = "b", .func = &cmd_bssid },
+    { .command = "t", .func = &cmd_txpower },
+    { .command = "a", .func = &cmd_apply },
+    { .command = "p", .func = &cmd_pause },
+    { .command = "r", .func = &cmd_resume },
 };
 
 void keyless_console_start(keyless_sta_config_t *cfg)

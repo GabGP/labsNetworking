@@ -25,7 +25,7 @@ If the upload cannot connect, hold BOOT, tap RESET, release BOOT, and run the up
 
 Run this first, with no flood and no capture. Put the board within a metre of the router, flash it, and run `pio device monitor` for about a minute. The first lines show the board's MAC, its 802.11 protocol bitmap (1 = 11b, 2 = 11g, 4 = 11n) and its maximum TX power. Every 10 seconds the log shows the router's beacon signal, and whether the router has replied to the board. If the board still never connects, paste those lines.
 
-The board transmits at 20 dBm by default. Full power needs a 22 µF capacitor across the board's 3V3 and GND pins: with it, the router confirmed 10 of 10 joins at 20 dBm; with it removed, 1 of 10, with the board in the same spot. Without a capacitor, set `KEYLESS_DEFAULT_TX_DBM` to 8 in `src/keyless_config.h` and flash, or type `txpower 8` then `apply` in the serial console. Eight dBm joined every time in the lab without the capacitor. In the serial console, `pause` hides the log lines so you can type a command, and `resume` shows them again.
+The board transmits at 20 dBm by default. Full power needs a 22 µF capacitor across the board's 3V3 and GND pins: with it, the router confirmed 10 of 10 joins at 20 dBm; with it removed, 1 of 10, with the board in the same spot. Without a capacitor, set `KEYLESS_DEFAULT_TX_DBM` to 8 in `src/keyless_config.h` and flash, or type `txpower 8` then `apply` in the serial console. Eight dBm joined every time in the lab without the capacitor. In the serial console, `pause` (or `p`) hides the log lines so you can type a command, and `resume` (or `r`) shows them again. Every command also has a one-letter short form, and `help` shows them in brackets: `t 8` then `a` sets 8 dBm and rejoins.
 
 ## Test
 
