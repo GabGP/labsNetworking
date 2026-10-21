@@ -202,10 +202,8 @@ health table only reads files.
 
 Prepare:
 
-1. `scripts/authorized-bssids.txt`: the evaluation network's BSSID, one per line. The file is in the
-   root `.gitignore`, so it stays out of git.
-2. The channel, from `managed-scan.sh` or from an airodump capture.
-3. Optional, `clients.txt`: one client MAC per line, from a capture on that channel. The airodump CSV
+1. The BSSID and the channel, from `managed-scan.sh` or from an airodump capture.
+2. Optional, `clients.txt`: one client MAC per line, from a capture on that channel. The airodump CSV
    lists each client with the BSSID it is on:
 
    ```bash
@@ -222,7 +220,7 @@ sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <BSSID> -c <CHANNEL> -u <HH:MM
 ```
 
 - `--in-window` is required, and you pass it only while the window is open.
-- `-u HH:MM` is required. The run stops by itself at that time, on this machine's clock.
+- `-u HH:MM` is optional. Use it for the window's end: the run stops by itself at that time, on this machine's clock. Without it, the run goes until `-r` rounds or Ctrl-C.
 - `-f clients.txt` is optional. With it, each round makes one call per listed client. Without it, each round
   makes one call to the broadcast address, which reaches every client.
 - `-r N` is optional: stop after N rounds (a short test). Without it, the run goes until `-u` or Ctrl-C.
@@ -244,16 +242,19 @@ bash -c 'source scripts/wifi-lib.sh && capture_health logs/<run>/cap-01.cap <BSS
 - `deauth`, `disassoc`, `auth`, `assoc_req`: management frames of those types, per minute and in total. They
   carry the AP's address whoever sent them, so they show what reached the air.
 
-**Limits.** aireplay-ng's `-a` mode waits for a beacon from the AP before it sends. On the AC8260 it can stop with
-"Couldn't determine current channel" (TESTS.md, section 2.19). On the 3168NGW it printed "channel -1" while it
-waited, then sent normally (TESTS.md, section 2.20). The tool does not pass aireplay-ng's
-`--ignore-negative-one`. The tool has not been run on air yet (TESTS.md, section 5).
+**Limits.** aireplay-ng's `-a` mode waits for a beacon from the AP before it sends. When it cannot read the card's channel (it reports -1), it exits with "Couldn't determine current channel"
+unless it is given `--ignore-negative-one`. The tool passes that flag only after it has checked, before the
+first call, that the card reads back the channel given with `-c` and that the run's own capture hears the AP.
+The AC8260 stopped this way (TESTS.md, section 2.19). On 20 Oct at 21:12 the 3168NGW did too, in the first
+real run, before any frame was sent (`logs/2026-10-20_211235_deauth-ch6`). Earlier fake-auth output on the
+3168NGW had "channel -1" followed by sends (TESTS.md, section 2.20). The fixed tool has not been run on air
+yet (TESTS.md, section 5, item 14).
 
 **Check it yourself.** Section 12 lists the commands, and what each should print.
 
 ## 12. Test each new script yourself
 
-Run these in order. Steps 12.1 and 12.2 send nothing. Steps 12.3 to 12.5 send frames, only to your own phone and your own router. Replace `<router BSSID>` with the GL router's BSSID and `wlp2s0` with your card's interface. The `-u` times below are computed as ten minutes from now.
+Run these in order. Steps 12.1 to 12.3 send nothing. Steps 12.4 and 12.5 send frames, only to your own phone and your own router. Replace `<router BSSID>` with the GL router's BSSID and `wlp2s0` with your card's interface. The `-u` times below are computed as ten minutes from now.
 
 ### 12.1 The capture-health table (reads a file, sends nothing)
 
@@ -273,10 +274,7 @@ Passive mode only listens. Start a download on your phone over the router's Wi-F
 
 ### 12.3 Deauth: the plan (sends nothing)
 
-The tool targets only BSSIDs in `scripts/authorized-bssids.txt`, a local file that git ignores. Add your router for these tests, and remove it at 12.6:
-
 ```bash
-echo "<router BSSID>" >> scripts/authorized-bssids.txt
 ./scripts/competition-deauth.sh -b <router BSSID> -c 6 -u $(date -d '+10 min' +%H:%M) --dry-run
 ```
 
@@ -297,7 +295,7 @@ Expect the broadcast plan and `Dry run: nothing was sent`. `./scripts/competitio
    ```bash
    sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <router BSSID> -c 6 -u $(date -d '+10 min' +%H:%M) -f my-phone.txt -r 1 --in-window
    ```
-   Expect one line `round 1 <phone MAC>:` with aireplay-ng's output, then `Done: 1 round(s)` and the table. The phone should lose its connection and reconnect. `deauth.log` and `aireplay.txt` in the run folder record what was sent.
+   Expect `[*] wlp2s0mon reports channel 6.` and `[*] The run's capture hears <router BSSID>.`, then one line `HH:MM:SS round 1 <phone MAC>: ...` ending in aireplay-ng's last output line, then `Done: 1 round(s)` and the table. If either check fails, the run stops before any frame, and the message says which one. The phone should lose its connection and reconnect. `deauth.log` and `aireplay.txt` in the run folder record what was sent.
 
 The tool requires `--in-window` for every real run. On your own router it only confirms the run; it does not check the course window.
 
@@ -309,12 +307,8 @@ Only when no other device on the router matters:
 sudo ./scripts/competition-deauth.sh -i wlp2s0 -b <router BSSID> -c 6 -u $(date -d '+10 min' +%H:%M) -r 1 --in-window
 ```
 
-Expect `round 1 broadcast:` with aireplay-ng's output. Every client of the router gets the frames.
+Expect `HH:MM:SS round 1 broadcast: ...`. The frames go to every client of the router.
 
-### 12.6 Clean up
-
-```bash
-sed -i '/<router BSSID>/d' scripts/authorized-bssids.txt
-```
+### 12.6 Stopping
 
 Ctrl-C stops any run at once, and the script restores WiFi on exit. The table may not show the deauth frames your laptop sent, because a monitor-mode card may not capture its own transmissions. I haven't checked that on this card, so judge the effect from `deauth.log` and from the phone.

@@ -19,6 +19,3 @@ lab10/router/wifi-wep-setup/out/
 # Log directories
 */logs/
 *.log
-
-# Competition: the BSSIDs the deauth script may target (local, not committed)
-lab10/scripts/authorized-bssids.txt

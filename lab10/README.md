@@ -172,8 +172,8 @@ Deauthenticates clients on one network, during the official evaluation window on
 - **With `-f clients.txt`:** each round is one call per MAC in the file, aimed at that client. Use
   it to leave the other clients alone. The list is a snapshot, so a client that joins later is missed.
 
-Required: `-i`, `-b`, `-c`, `-u HH:MM` (when the window closes; the run stops then) and `--in-window`.
-The BSSID must be in `scripts/authorized-bssids.txt`, and you type START at the prompt. `--dry-run`
+Required: `-i`, `-b`, `-c` and `--in-window`. `-u HH:MM` is optional: with it, the run stops when the window
+closes. You type START at the prompt. `--dry-run`
 prints the plan and sends nothing. Each run folder holds `deauth.log`, the raw `aireplay.txt`,
 `capture-01.cap` and `capture-01-health.txt`. The commands are in
 [COMMANDS.md](COMMANDS.md#11-the-evaluation-window-capture-health-and-deauth), the checks in TESTS.md
@@ -244,12 +244,11 @@ On the Intel card the cleanup waits 12 s before it removes the monitor interface
 | Target is on channel 6 and the card is the Realtek | The Realtek receives only on the channel it started on. Use the AC8260 on that channel, or connect the card to a network on that channel before monitor mode starts (see Hardware). |
 | Hidden network, injection test shows 0/30 | Most hidden networks ignore probes that don't name them, so the test can't see them even when injection works. Get the name first; airodump shows it once a client connects. Untested in this lab. |
 | Few IVs a second | The network carries little traffic, and the replay adds almost none on the Intel 3168NGW. Start a large download from a device on the network. A phone downloading from the laptop worked (TESTS.md, section 2.7). |
-| `competition-deauth.sh` says the BSSID is not in `scripts/authorized-bssids.txt` | Add the evaluation network's BSSID to that file. It is local and stays out of git. |
 | `competition-deauth.sh` says the `-u` time has passed | Give a time later today, on this machine's clock (`date` shows it). |
 | `competition-deauth.sh` says there is no capture | airodump-ng stopped at once. Read `airmon.log` in the run folder and try again. Nothing was sent. |
-| `competition-deauth.sh` prints only its usage | A real run needs `-i`, `-b`, `-c`, `-u HH:MM` and `--in-window`. `-f` is optional. COMMANDS.md §11 has the full line. |
+| `competition-deauth.sh` prints only its usage | A real run needs `-i`, `-b`, `-c` and `--in-window`. `-u` and `-f` are optional. COMMANDS.md §11 has the full line. |
 | A call stops with "stopped after 30 s" and no reply | aireplay-ng waited for a beacon from the AP and did not hear one on that channel. Check the channel with `managed-scan.sh`. |
-| A call prints "Couldn't determine current channel" | The AC8260 cannot use aireplay-ng's `-a` mode (TESTS.md, section 2.19). Use the 3168NGW. This aireplay-ng has `--ignore-negative-one`, which the tool does not use yet. |
+| A run stops with "Couldn't determine current channel" | aireplay-ng cannot read the card's channel, so it exits before sending. The tool passes `--ignore-negative-one` only after it has read the channel back and seen the AP in its own capture. If one of those checks refuses, the message names it. The AC8260 stopped this way before (TESTS.md, section 2.19). |
 | The end of a run says "No health table" | The capture could not be read, or tshark is missing (package `wireshark-cli`). The run's files are still in its folder; the reason is printed above that line. |
 | "Ignoring N line(s)" from the deauth tool | The client file given with `-f` has a typo. Only the MACs the tool prints before START are targeted. |
 
@@ -267,8 +266,8 @@ The commands are in [COMMANDS.md, section 11](COMMANDS.md#11-the-evaluation-wind
   the class router's channel, only during the official window, as the course staff's written
   reply allows.
 - **Tools:** the [capture-health table](#capture-health) counts the frames behind each condition,
-  and every run prints it. `scripts/competition-deauth.sh` deauthenticates the clients of a network
-  inside the window, and only on networks in `scripts/authorized-bssids.txt`.
+  and every run prints it. `scripts/competition-deauth.sh` deauthenticates the clients of the network
+  named with `-b`. It runs only with `--in-window`, and after you type START.
 - **The ESP32-C3 boards** are used for the keyless-station test and as a packet monitor
   (TESTS.md, sections 2.21 and 5).
 
